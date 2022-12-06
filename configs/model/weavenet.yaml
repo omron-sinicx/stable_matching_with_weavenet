@@ -1,0 +1,31 @@
+_target_: src.models.weavenet_module.WeaveNetLitModule
+
+defaults:
+    - _self_
+    - criteria: default.yaml
+
+  
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.0001
+  betas: [0.5,0.999]
+#  weight_decay: 0.0
+
+scheduler: null
+#  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+#  _partial_: true
+#  mode: min
+#  factor: 0.1
+#  patience: 10
+
+net:
+  _target_: src.models.components.weavenet.WeaveNet
+  L: 6
+  D: 64
+  inner_conv_out_channels: 64
+  use_resnet: false # set true when L>6
+  sab_dim: 1
+  asymmetric: false
+  stream_aggregation: HV # HV | dual_softmax | linear_problem
+  solver: null # set solver for linear_problem

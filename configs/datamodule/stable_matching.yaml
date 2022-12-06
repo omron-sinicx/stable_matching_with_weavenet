@@ -1,0 +1,12 @@
+_target_: src.datamodules.stable_matching.StableMatchingDataModule
+
+defaults:
+  - _self_
+  - training_data: UU5x5
+  - val_test_data: UU5x5
+ 
+data_dir: ${paths.data_dir}
+batch_size: 8
+samples_per_epoch: 1600
+num_workers: 8
+pin_memory: False

@@ -1,0 +1,30 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+#defaults:
+#  - override /datamodule: mnist.yaml
+#  - override /model: mnist.yaml
+#  - override /callbacks: default.yaml
+#  - override /trainer: default.yaml
+
+# all parameters below will be merged with parameters from default configurations set above
+# this allows you to overwrite only specified parameters
+
+tags: ["structure", "wide2narrow1"]
+
+seed: 12345
+
+model:
+  net:
+    D: [64,64,48,48,32,16]
+    inner_conv_out_channels: [64,64,48,48,32,16]
+
+#datamodule:
+#  batch_size: 64
+
+#logger:
+#  wandb:
+#    tags: ${tags}
+#    group: "weavenet"
