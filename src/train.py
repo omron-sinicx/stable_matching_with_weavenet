@@ -67,13 +67,18 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
 
     log.info(f"Instantiating datamodule <{cfg.datamodule._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.datamodule)
-
+    dl_train = datamodule.train_dataloader()
+    dl_val = datamodule.val_dataloader()
+    dl_test = datamodule.test_dataloader()
+    
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
+        
 
     log.info("Instantiating callbacks...")
     callbacks: List[Callback] = utils.instantiate_callbacks(cfg.get("callbacks"))
 
+    
     log.info("Instantiating loggers...")
     logger: List[LightningLoggerBase] = utils.instantiate_loggers(cfg.get("logger"))
 
@@ -92,9 +97,10 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
     if logger:
         log.info("Logging hyperparameters!")
         utils.log_hyperparameters(object_dict)
-
+    
     if cfg.get("train"):
         log.info("Starting training!")
+        #trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path"))
 
     train_metrics = trainer.callback_metrics

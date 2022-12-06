@@ -2,9 +2,9 @@
 
 defaults:
   - _self_
-  - datamodule: mnist.yaml # choose datamodule with `test_dataloader()` for evaluation
-  - model: mnist.yaml
-  - logger: null
+  - datamodule: stable_matching.yaml # choose datamodule with `test_dataloader()` for evaluation
+  - model: weavenet.yaml
+  - logger: wandb.yaml
   - trainer: default.yaml
   - paths: default.yaml
   - extras: default.yaml
