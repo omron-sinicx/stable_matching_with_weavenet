@@ -1,0 +1,44 @@
+_target_: src.models.weavenet_module.WeaveNetLitModule
+
+defaults:
+    - _self_
+
+  
+optimizer:
+  _target_: torch.optim.Adam
+  _partial_: true
+  lr: 0.0001
+  betas: [0.5,0.999]
+#  weight_decay: 0.0
+
+scheduler: null
+#  _target_: torch.optim.lr_scheduler.ReduceLROnPlateau
+#  _partial_: true
+#  mode: min
+#  factor: 0.1
+#  patience: 10
+
+net:
+  _target_: src.models.components.weavenet.WeaveNetLP
+  L: 6
+  D: 64
+  inner_conv_out_channels: 64
+  use_resnet: false # set true when L>6
+  input_side_channels: 1
+  asymmetric: false
+  stream_aggregation: dual_softmax_sqrt # HV | dual_softmax |  dual_softmax_sqrt | None
+  solver: 
+      _target_: torch_match.layers.StableMatchingMinEgalitarian
+      mtype: 1 # 1:CC 2:CP 3:PC 4:PP 5:AUTO
+      cost_to_be_single: 0.3
+      with_sparse: false
+  
+criteria:
+    _target_: src.models.components.criteria.CriteriaStableMatching
+
+    loss_one2one: correlation
+    one2one_weight: 0.0 # constraint to be one-to-one matching  
+    stability_weight: 0.0 # constraint to be stable matching (with one2one_weight together).
+
+    fairness: sexequality # null | sexequality | egalitarian | balance
+    fairness_weight: 1.0 # ignored if fairness is null.
