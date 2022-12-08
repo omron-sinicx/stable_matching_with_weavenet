@@ -69,8 +69,7 @@ class WeaveNetLitModule(LightningModule):
         
 
     def forward(self, sab: torch.Tensor, sba:torch.Tensor):
-        m = self.net([sab,sba])
-        return m
+        return self.net([sab,sba])
 
     def on_train_start(self):
         # by default lightning executes validation step sanity checks before training starts,
@@ -82,6 +81,7 @@ class WeaveNetLitModule(LightningModule):
     def step(self, batch: Any):
         sab, sba = batch[:2]
         m, _, _ = self.forward(sab, sba)
+        
         # sab: (batch_size, 1, N, M)
         # sba: (batch_size, 1, M, N)
         # m: (batch_size, N, M)
@@ -130,7 +130,7 @@ class WeaveNetLitModule(LightningModule):
             _metric =  getattr(self, '{}_{}'.format(mode,k))
             _metric(v.float().mean())
             self.log("{}/{}".format(mode,k), _metric, on_step=False, on_epoch=True, prog_bar=True)
-        
+
         return {"loss": loss}
 
     def validation_epoch_end(self, outputs: List[Any]):
@@ -189,7 +189,6 @@ class WeaveNetLitModule(LightningModule):
                 },
             }
         return {"optimizer": optimizer}
-
 
     
 if __name__ == "__main__":

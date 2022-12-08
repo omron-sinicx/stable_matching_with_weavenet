@@ -2,7 +2,6 @@ _target_: src.models.weavenet_module.WeaveNetLitModule
 
 defaults:
     - _self_
-    - criteria: default.yaml
 
   
 optimizer:
@@ -25,7 +24,16 @@ net:
   D: 64
   inner_conv_out_channels: 64
   use_resnet: false # set true when L>6
-  sab_dim: 1
+  input_side_channels: 1
   asymmetric: false
-  stream_aggregation: HV # HV | dual_softmax | linear_problem
-  solver: null # set solver for linear_problem
+  stream_aggregation: dual_softmax_sqrt # HV | dual_softmax |  dual_softmax_sqrt | None
+  
+criteria:
+    _target_: src.models.components.criteria.CriteriaStableMatching
+
+    loss_one2one: correlation
+    one2one_weight: 1.0 # constraint to be one-to-one matching  
+    stability_weight: 0.7 # constraint to be stable matching (with one2one_weight together).
+
+    fairness: null # null | sexequality | egalitarian | balance
+    fairness_weight: 0.01 # ignored if fairness is null.

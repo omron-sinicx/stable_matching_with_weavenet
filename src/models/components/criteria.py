@@ -1,5 +1,5 @@
 import torch
-from torch_match.loss import loss_one2one_correlation_exp, loss_one2one_maximize_sum, loss_stability, loss_sexequality, loss_egalitarian, loss_balance
+from torch_match.loss import loss_one2one_correlation_exp, loss_one2one_correlation,loss_one2one_maximize_sum, loss_stability, loss_sexequality, loss_egalitarian, loss_balance
 from torch_match.metric import is_one2one, is_stable, binarize, sexequality_cost, balance_score, egalitarian_score, count_blocking_pairs, PreferenceFormat
 
 
@@ -10,7 +10,7 @@ class CriteriaStableMatching():
                  stability_weight: float = 0.7,
                  fairness: str = 'sexequality',
                  fairness_weight: float = 0.1,
-                 loss_one2one: str = 'correlation_exp', # correlation_exp | maximize_sum
+                 loss_one2one: str = 'correlation_exp', # correlation | correlation_exp | maximize_sum
                 ):    
         
         self.loss_one2one = loss_one2one
@@ -25,7 +25,9 @@ class CriteriaStableMatching():
             self.fairness = None # self.fairness is None if fairness == None or fairness_weight == 0.0
         
     def generate_criterion(self):      
-        if self.loss_one2one == 'correlation_exp':
+        if self.loss_one2one == 'correlation':
+            loss_one2one = loss_one2one_correlation
+        elif self.loss_one2one == 'correlation_exp':
             loss_one2one = loss_one2one_correlation_exp
         elif  self.loss_one2one == 'maximize_sum':
             loss_one2one = loss_one2one_maximize_sum
@@ -103,7 +105,7 @@ class CriteriaStableMatching():
                 return _metric_sm(m,sab,sba)[0]
             return func
 
-        if self.fairness == 'sexequality':            
+        if self.fairness == 'sexequality':           
             fairness_score = sexequality_cost
         elif self.fairness == 'egalitarian':
             fairness_score = egalitarian_score

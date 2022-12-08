@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-
+from torch_match.preference import to_rank, PreferenceFormat
 
 @torch.jit.script
 def max_pool_concat(x,z,dim:int):
@@ -87,9 +87,10 @@ class FeatureWeavingLayer(torch.nn.Module):
         return self.E(Z,batch_size)
     
 class WeaveNet(torch.nn.Module):
-    def __init__(self, L, D=64, inner_conv_out_channels=64, use_resnet=True, sab_dim=1, asymmetric=False, stream_aggregation='HV', solver=None):
+    def __init__(self, L, D, inner_conv_out_channels, 
+                 use_resnet=False, input_side_channels=1, asymmetric=False, stream_aggregation=None):
         super(WeaveNet,self).__init__()
-        self.sab_dim = sab_dim
+        self.input_side_channels = input_side_channels
         self.use_resnet=use_resnet
         self.asymmetric=asymmetric
         self.L = L
@@ -111,13 +112,14 @@ class WeaveNet(torch.nn.Module):
         
         self.softmax_ab = nn.Softmax(dim=-1)
         self.softmax_ba = nn.Softmax(dim=-2)
+        if stream_aggregation is None:
+            self.stream_aggregation = None
         if stream_aggregation == 'HV':
             self.stream_aggregation = self.stream_aggregation_HV
         elif stream_aggregation == 'dual_softmax':
             self.stream_aggregation = self.stream_aggregation_dual_softmax
-        elif stream_aggregation == 'linear_problem':
-            self.lp_solver = solver
-            self.stream_aggregation = self.stream_aggregation_linear_problem
+        elif stream_aggregation == 'dual_softmax_sqrt':
+            self.stream_aggregation = self.stream_aggregation_dual_softmax_sqrt
         else:
             raise RuntimeError("Unknown stream_aggregation: {}.".format(stream_aggregation))
             
@@ -134,9 +136,9 @@ class WeaveNet(torch.nn.Module):
         encoders = torch.nn.ModuleList()
 
         if self.asymmetric:
-            input_dim = (self.sab_dim+1)*2
+            input_dim = (self.input_side_channels+1)*2
         else:
-            input_dim = self.sab_dim*2
+            input_dim = self.input_side_channels*2
 
         for i in range(self.L):
             output_dim = self.D[i]
@@ -161,9 +163,10 @@ class WeaveNet(torch.nn.Module):
         mba = self.softmax_ba(m[1])
         return mab * mba
     
-    def stream_aggregation_linear_problem(self, m : torch.Tensor) -> torch.Tensor:
-        m = self.stream_aggregation_dual_softmax(m) # bind m to be solvable.
-        return solver(m)
+    def stream_aggregation_dual_softmax_sqrt(self, m : torch.Tensor) -> torch.Tensor:
+        mab = self.softmax_ab(m[0])
+        mba = self.softmax_ba(m[1])
+        return (mab * mba).sqrt()
     
     def forward(self, Ss):
         Za, Zb = Ss
@@ -193,9 +196,29 @@ class WeaveNet(torch.nn.Module):
         Z = self.conv1x1(cross_concat(Z,batch_size))
         
         m = torch.stack([Z[:batch_size].view(batch_size, N,M),Z[batch_size:].view(batch_size, N,M)])
+        if self.stream_aggregation:
+            return self.stream_aggregation(m), m[0], m[1] # return m, mab, mba
         
-        return self.stream_aggregation(m), m[0], m[1] # return m, mab, mba
-
+        return None, m[0], m[1] # return only mab, mba if stream_aggregation is None.
+    
+class WeaveNetLP(WeaveNet):
+    def __init__(self, *args, solver=None, **kwargs):
+        
+        super().__init__(*args, **kwargs)
+        self.solver = solver
+        
+    def forward(self, Ss):
+        m, mab, mba = super().forward(Ss)
+        
+        Ps = [to_rank(s.squeeze(1), pformat=PreferenceFormat.satisfaction) for s in Ss] # convert sat to rank.
+        cost = 1.0-m
+        m_binary = self.solver(cost, Ps)
+        print("check diff of m and m_binary")
+        print(m[0], m_binary[0])        
+        # Gumbel-resampling like way to make it differentiable.
+        m_binary = m_binary + m - m.detach()
+        return m_binary, mab, mba
 
 if __name__ == "__main__":
-    _ = SimpleDenseNet()
+    _ = WeaveNet(1,2,2)
+    _ = WeaveNetLP(1,2,2)

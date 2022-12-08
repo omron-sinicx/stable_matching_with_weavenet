@@ -1,0 +1,4 @@
+_target_: src.models.components.criteria.CriteriaStableMatching
+
+fairness: balance # null | sexequality | egalitarian | balance
+fairness_weight: 0.01

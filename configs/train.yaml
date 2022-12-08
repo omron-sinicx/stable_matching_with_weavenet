@@ -5,11 +5,9 @@
 defaults:
   - _self_
   - datamodule: stable_matching.yaml
-#  - training_data: UU5x5.yaml
-#  - val_test_data: UU5x5.yaml
   - model: weavenet.yaml
   - callbacks: default.yaml
-  - logger: null # null wandb.yaml # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
+  - logger: null # null | wandb.yaml # set logger here or use command line (e.g. `python train.py logger=tensorboard`)
   - trainer: default.yaml
   - paths: default.yaml
   - extras: default.yaml
