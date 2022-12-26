@@ -1,4 +1,4 @@
-_target_: src.models.weavenet_module.WeaveNetLitModule
+_target_: src.models.weavenet_module.WeaveNetLPLitModule
 
 defaults:
     - _self_
@@ -37,8 +37,8 @@ criteria:
     _target_: src.models.components.criteria.CriteriaStableMatching
 
     loss_one2one: correlation
-    one2one_weight: 0.0 # constraint to be one-to-one matching  
-    stability_weight: 0.0 # constraint to be stable matching (with one2one_weight together).
+    one2one_weight: 1.0 # constraint to be one-to-one matching  
+    stability_weight: 0.7 # constraint to be stable matching (with one2one_weight together).
 
     fairness: sexequality # null | sexequality | egalitarian | balance
-    fairness_weight: 1.0 # ignored if fairness is null.
+    fairness_weight: 0.05 # ignored if fairness is null.

@@ -88,46 +88,22 @@ class CriteriaStableMatching():
         return 'loss_{}'.format(self.fairness)
     
     
-    def generate_metric(self):
-        def _metric_sm(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor):
-            mb = binarize(m)
-            temp_one2one = is_one2one(mb)
-            temp_stable = is_stable(mb, sab, sba)
-            log = {}
-            log['is_one2one'] = temp_one2one
-            log['is_stable'] = temp_stable
-            log['is_success'] = temp_one2one * temp_stable
-            log['num_blocking_pair'] = count_blocking_pairs(mb, sab, sba)
-            return log, mb
-        
-        if self.fairness is None:
-            def func(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor):
-                return _metric_sm(m,sab,sba)[0]
-            return func
-
-        if self.fairness == 'sexequality':           
-            fairness_score = sexequality_cost
-        elif self.fairness == 'egalitarian':
-            fairness_score = egalitarian_score
-        elif self.fairness == 'balance':
-            fairness_score = balance_score
-        else:
-            RuntimeError('Unknown fairness criterion "{}".'.format(self.fairness))
-            
-        def metric(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor, 
-                   fairness_metric_name : str = self.fairness_metric_name):
-            log, mb = _metric_sm(m, sab, sba)
-            log['{}'.format(fairness_metric_name)] = fairness_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
-            return log
-        return metric
+    @staticmethod
+    def metric(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor):
+        mb = binarize(m)
+        temp_one2one = is_one2one(mb)
+        temp_stable = is_stable(mb, sab, sba)
+        log = {}
+        log['is_one2one'] = temp_one2one
+        log['is_stable'] = temp_stable
+        log['is_success'] = temp_one2one * temp_stable
+        log['num_blocking_pair'] = count_blocking_pairs(mb, sab, sba)
+        log['sexequality'] = sexequality_cost(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        log['egalitarian'] = egalitarian_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        log['balance'] = balance_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        return log, mb
         
     @property
-    def base_metric_names(self):
-        return ['is_one2one', 'is_stable', 'is_success', 'num_blocking_pair']
+    def metric_names(self):
+        return ['is_one2one', 'is_stable', 'is_success', 'num_blocking_pair', 'sexequality', 'egalitarian','balance']
     
-    @property
-    def fairness_metric_name(self):
-        if self.fairness in ['sexequality']:
-            return '{}_cost'.format(self.fairness)
-        
-        return '{}_score'.format(self.fairness)

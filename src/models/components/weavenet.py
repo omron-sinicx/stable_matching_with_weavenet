@@ -213,11 +213,9 @@ class WeaveNetLP(WeaveNet):
         Ps = [to_rank(s.squeeze(1), pformat=PreferenceFormat.satisfaction) for s in Ss] # convert sat to rank.
         cost = 1.0-m
         m_binary = self.solver(cost, Ps)
-        print("check diff of m and m_binary")
-        print(m[0], m_binary[0])        
         # Gumbel-resampling like way to make it differentiable.
         m_binary = m_binary + m - m.detach()
-        return m_binary, mab, mba
+        return m, m_binary, mab, mba
 
 if __name__ == "__main__":
     _ = WeaveNet(1,2,2)

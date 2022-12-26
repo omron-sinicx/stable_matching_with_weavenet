@@ -46,20 +46,20 @@ class WeaveNetLitModule(LightningModule):
         self.criterion = torch.jit.script(criteria.generate_criterion())
         
         # metric objects for calculating and averaging accuracy across batches
-        self.metric =  torch.jit.script(criteria.generate_metric())
+        self.metric =  torch.jit.script(criteria.metric)
         
         self.fairness = criteria.fairness
         for mode in ['train', 'val', 'test']:
             setattr(self, '{}_total_loss'.format(mode), MeanMetric())            
             for criterion in criteria.base_criterion_names:                 
                 setattr(self, '{}_{}'.format(mode,criterion), MeanMetric())
-            for metric in criteria.base_metric_names:
+            for metric in criteria.metric_names:
                 setattr(self, '{}_{}'.format(mode,metric), MeanMetric())
-                
+
             if self.fairness is None:
-                continue                
+                continue           
+            print('{}_{}'.format(mode,criteria.fairness_criterion_name))
             setattr(self, '{}_{}'.format(mode,criteria.fairness_criterion_name), MeanMetric())
-            setattr(self, '{}_{}'.format(mode,criteria.fairness_metric_name), MeanMetric())
 
             
         self.val_success_rate_best = MaxMetric() # for selecting the stability-based best model
@@ -85,29 +85,29 @@ class WeaveNetLitModule(LightningModule):
         # sab: (batch_size, 1, N, M)
         # sba: (batch_size, 1, M, N)
         # m: (batch_size, N, M)
-        loss, log = self.criterion(m, sab.squeeze(1), sba.squeeze(1))
-        return m, sab.squeeze(1), sba.squeeze(1), loss, log
+        sab, sba = sab.squeeze(1), sba.squeeze(1)
+        loss, log = self.criterion(m, sab, sba)
+        metric, _ = self.metric(m, sab, sba)
+
+        return m, loss, log, metric
     
-    def training_step(self, batch: Any, batch_idx: int):
-        m, sab, sba, loss, log = self.step(batch)
-        
-        # update and log metrics
-        self.train_total_loss(loss)
-        self.log("train/total_loss", self.train_total_loss, on_step=False, on_epoch=True, prog_bar=True)
-        mode = 'train'
+    def set_log(self, log, metric, mode):
         for k,v in log.items():
             _loss =  getattr(self, '{}_{}'.format(mode,k))
             _loss(v)
             self.log("{}/{}".format(mode,k), _loss, on_step=False, on_epoch=True, prog_bar=True)
-        log = self.metric(m, sab, sba)
-        for k,v in log.items():
+        for k,v in metric.items():
             _metric =  getattr(self, '{}_{}'.format(mode,k))
             _metric(v.float().mean())
             self.log("{}/{}".format(mode,k), _metric, on_step=False, on_epoch=True, prog_bar=True)
-
-        # we can return here dict with any tensors
-        # and then read it in some callback or in `training_epoch_end()` below
-        # remember to always return loss from `training_step()` or backpropagation will fail!
+        
+    
+    def training_step(self, batch: Any, batch_idx: int):
+        m, loss, log, metric = self.step(batch)
+        # update and log metrics
+        self.train_total_loss(loss)
+        self.log("train/total_loss", self.train_total_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.set_log(log,metric, 'train')
         return {"loss": loss}
     
     def training_epoch_end(self, outputs: List[Any]):
@@ -115,21 +115,12 @@ class WeaveNetLitModule(LightningModule):
         pass
 
     def validation_step(self, batch: Any, batch_idx: int):
-        m, sab, sba, loss, log = self.step(batch)
+        m, loss, log, metric = self.step(batch)
 
         # update and log metrics
         self.val_total_loss(loss)        
         self.log("val/total_loss", self.val_total_loss, on_step=False, on_epoch=True, prog_bar=True)
-        mode = 'val'
-        for k,v in log.items():
-            _loss =  getattr(self, '{}_{}'.format(mode,k))
-            _loss(v)
-            self.log("{}/{}".format(mode,k), _loss, on_step=False, on_epoch=True, prog_bar=True)
-        log = self.metric(m, sab, sba)
-        for k,v in log.items():
-            _metric =  getattr(self, '{}_{}'.format(mode,k))
-            _metric(v.float().mean())
-            self.log("{}/{}".format(mode,k), _metric, on_step=False, on_epoch=True, prog_bar=True)
+        self.set_log(log,metric, 'val')
 
         return {"loss": loss}
 
@@ -147,22 +138,12 @@ class WeaveNetLitModule(LightningModule):
         pass
 
     def test_step(self, batch: Any, batch_idx: int):
-        m, sab, sba, loss, log = self.step(batch)
+        m, loss, log, metric = self.step(batch)
 
         # update and log metrics
         self.test_total_loss(loss)
         self.log("test/loss", self.test_total_loss, on_step=False, on_epoch=True, prog_bar=True)
-        mode = 'test'
-        for k,v in log.items():
-            _loss =  getattr(self, '{}_{}'.format(mode,k))
-            _loss(v)
-            self.log("{}/{}".format(mode,k), _loss, on_step=False, on_epoch=True, prog_bar=True)
-            
-        log = self.metric(m, sab, sba)
-        for k,v in log.items():
-            _metric =  getattr(self, '{}_{}'.format(mode,k))
-            _metric(v.float().mean())
-            self.log("{}/{}".format(mode,k), _metric, on_step=False, on_epoch=True, prog_bar=True)
+        self.set_log(log,metric, 'test')
 
         return {"loss": loss}
 
@@ -190,6 +171,49 @@ class WeaveNetLitModule(LightningModule):
             }
         return {"optimizer": optimizer}
 
+    
+import random
+class WeaveNetLPLitModule(WeaveNetLitModule):
+    def __init__(
+        self,
+        net: torch.nn.Module,
+        optimizer: torch.optim.Optimizer,
+        scheduler: torch.optim.lr_scheduler,
+        criteria: criteria.CriteriaStableMatching,
+    ):
+        super().__init__(net,optimizer, scheduler, criteria)
+        
+    def step(self, batch: Any):
+        sab, sba = batch[:2]
+        m, m_binary,_, _ = self.forward(sab, sba)
+        
+        # sab: (batch_size, 1, N, M)
+        # sba: (batch_size, 1, M, N)
+        # m: (batch_size, N, M)
+        sab, sba = sab.squeeze(1), sba.squeeze(1)
+        loss, log = self.criterion(m, sab, sba)
+        #loss_b, log_b = self.criterion(m_binary, sab.squeeze(1), sba.squeeze(1))
+        #loss += loss_b
+        #for k,v in log_b.items():
+        #    log["{}_binary".format(k)] = v
+        metric = self.metric(m_binary, sab, sba)
+        
+        #if random.random() > 0.99:
+        #    print("hoge: ", m[0], m_binary[0], m_binary[0]-m[0])
+        
+        return m_binary, loss, log, metric
+
+    def validation_epoch_end(self, outputs: List[Any]):
+        success_rate = self.val_is_success.compute()
+        self.val_success_rate_best(success_rate)
+        self.log("val/success_rate_best", self.val_success_rate_best.compute())
+        
+        if self.fairness:
+            fairness = getattr(self, 'val_{}'.format(self.fairness_criterion_name)).compute()
+            self.val_fairness_best(fairness)
+            self.log("val/fairness_best", self.val_fairness_best.compute())
+        
+        pass    
     
 if __name__ == "__main__":
     import hydra
