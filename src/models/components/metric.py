@@ -127,13 +127,3 @@ def calc_all_fairness_metrics(m : torch.Tensor, cab : torch.Tensor, cba : torch.
     #balance_ = torch.stack([batch_sum(m, cab, batch_size), batch_sum(m.transpose(-1,-2), cba, batch_size)]).max(dim=0)[0]
     #assert((balance ==  balance_).all())
     return se, egal, balance
-
-from torchmetrics.classification.accuracy import BinaryAccuracy
-class MatchingAccuracy(BinaryAccuracy):
-    def update(self, preds: torch.Tensor, target: torch.Tensor) -> None:
-        batch_size, n, m = preds.shape
-        if preds.dtype not in [torch.int32, torch.int64]:
-            preds = binarize(preds)
-        preds = (preds == target).view(batch_size, -1) # binary, (batch_size, n, m) -> (batch_size, n*m)
-        preds = preds.all(dim=-1).float() # (batch_size, n*m) -> batch_size
-        super().update(preds, torch.ones(preds.shape, dtype=torch.int32))

@@ -199,7 +199,7 @@ class WeaveNet(torch.nn.Module):
         if self.stream_aggregation:
             return self.stream_aggregation(m), m[0], m[1] # return m, mab, mba
         
-        return None, m[0], m[1] # return only mab, mba if stream_aggregation is None.
+        return None, m[0], m[1] # return only mab, mba if stream_aggregation is None.    
     
 class WeaveNetLP(WeaveNet):
     def __init__(self, *args, solver=None, **kwargs):

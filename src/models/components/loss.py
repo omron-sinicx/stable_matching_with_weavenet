@@ -1,25 +1,16 @@
 from typing import Tuple
 import torch
 from .preference import batch_sum
-
-class MatchingCrossEntropy(torch.nn.CrossEntropyLoss):
-    def forward(self, input: torch.Tensor, target: torch.Tensor)->torch.Tensor:
-        n, m = input.shape[-2:]
-        input = input.view(-1, m) # (b, n, m) -> (b*n, m)
-        target = target.view(-1,m) # (b, n, m) -> (b*n, m)
-        target, input = self.erase_empty_target_rows(target, input)
-        target_idx = target.argmax(dim=-1)
-        return super().forward(input, target_idx)
-    @staticmethod
-    def erase_empty_target_rows(target: torch.Tensor, input:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
-        is_valid_row = target.sum(dim=-1)>0
-        return target[is_valid_row], input[is_valid_row]
         
-    
+__all__ = [
+    'loss_one2one_correlation',
+    'loss_stability',
+    'loss_sexequality',
+    'loss_egalitarian',
+    'loss_balance',
+]
 def loss_one2one_maximize_sum(m : torch.Tensor) -> torch.Tensor:
-    '''
-    this function assumes that $m$ is preliminary dual-softmaxed.
-    '''
+    #this function assumes that $m$ is preliminary dual-softmaxed.
     n = min(m.size(-2), m.size(-1))
     return 1.0 - ((m.view(m.size(0), -1).sum(dim=-1) / n)).mean()
 
@@ -34,7 +25,24 @@ def loss_one2one_correlation_exp(m : torch.Tensor, epsilon:float=10**-7) -> torc
     dM = ((m_exp)/mc_norm * (m_exp)/mr_norm).view(batch_size, -1).sum(dim=-1)*(Z)
     return 1 - dM.mean()
 
-def loss_one2one_correlation(m : torch.Tensor, epsilon:float=10**-7) -> torch.Tensor:
+def loss_one2one_correlation(m : torch.Tensor) -> torch.Tensor:
+    r"""
+    Calculates a loss to maintain :math:`m` to be a doubly-stochastic matrix, which is a contiously-relaxed one-to-one matching.
+    
+    .. math::
+        \mathcal{L}_{\rm one2one}(m) = 1 - \frac{N+M}{2NM} \sum_{(i,j)\in N\times M} (\frac{m_{i,j}}{||m_{*,j}||_2} * \frac{m_{i,j}}{||m_{i,*}||_2})
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+    Args:
+        m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+    Returns:
+        The calculated :math:`\mathcal{L}_{\rm one2one}(m)`.
+        
+   　．． note::
+        The coefficient :math:`\frac{N+M}{2NM}` can be :math:`\frac{1}{\max(N,M)}` for :math:`N\neq M` cases?
+        
+    """    
     mc_norm = m.norm(p=2,dim=-1,keepdim=True)
     mr_norm = m.norm(p=2,dim=-2,keepdim=True)
     N,M = m.shape[-2:]
@@ -78,19 +86,104 @@ def _loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, ep
         uns += (unsab*unsba).sum()
     return uns
 
-def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:        
+def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+    r"""
+    Calculates a loss to minimize violation of stability constraints of stable marriage problem, originally proposed in 
+    `Shira Li, "Deep Learning for Two-Sided Matching Markets" <https://www.math.harvard.edu/media/Li-deep-learning-thesis.pdf>`_
+    as `expected ex post stability violation`.
+    
+    .. math::
+        \text{envy}^{ab}_j(m, s^{ab}) &=& \sum_{n\in N\backslash\{i\}}m_{i,j}\max(s^{ab}_{i,j}-s^{ab}_{n,j},0) \\
+        \text{envy}^{ba}_i(m,, s^{ba}) &=& \sum_{m\in M\backslash\{j\}}m^\top_{j,i}\max(s^{ba}_{j,i}-s^{ba}_{m,i},0) \\
+        \mathcal{L}_{\rm stability}(m, s^{ab}, s^{ba}) &=& \sum_{(i,j)\in N\times M} \text{envy}^{ab}_j(m, s^{ab}) * \text{envy}^{ba}_j(m, s^{ba})
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - sab: :math:`(B, N, M)`
+        - sab: :math:`(B, M, N)`
+    Args:
+        m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
+        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        The calculated `expected ex post stability violation` of :math:`\mathcal{L}_{\rm stability}(m, s^{ab}, s^{ba})`.
+        
+    """
     return torch.stack([_loss_stability(_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]).mean()
 
 def loss_sexequality(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
-    batch_size = m.size(0)
-    # return |(m * sab).sum() - m.t() * sba).sum()|
+    r"""
+    Calculates a loss to minimize `sex-equality cost <https://core.ac.uk/download/pdf/160454594.pdf>`_.
+    
+    .. math::
+       S^{ab}(m) &=& \sum_{(i,j)\in N\times M} m_{i,j}s^{ab}_{i,j} \\
+       S^{ba}(m) &=& \sum_{(i,j)\in N\times M} m^\top_{j,i}s^{ba}_{j,i} \\
+        \mathcal{L}_{\rm sexequality}(m, s^{ab}, s^{ba}) &=& 
+        | S^{ab}(m) - S^{ba}(m)|
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - sab: :math:`(B, N, M)`
+        - sab: :math:`(B, M, N)`
+    Args:
+        m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
+        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        Batch-wise mean of :math:`\mathcal{L}_{\rm sexequality}(m, s^{ab}, s^{ba})`.
+    """
+    batch_size = m.size(0) 
     return (batch_sum(m, sab, batch_size) - batch_sum(m.transpose(-1,-2), sba, batch_size)).abs().mean()
 
 def loss_egalitarian(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+    r"""
+    Calculates a loss to minimize `egalitarian cost <https://core.ac.uk/download/pdf/160454594.pdf>`_.
+    
+    .. math::
+        \mathcal{L}_{\rm egalitarian}(m, s^{ab}, s^{ba}) = S^{ab}(m) + S^{ba}(m),
+    
+    where :math:`S^{ab}(m)` and  :math:`S^{ba}(m)` are defined with :obj:`loss_sexequality`.
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - sab: :math:`(B, N, M)`
+        - sab: :math:`(B, M, N)`
+    Args:
+        m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
+        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        Batch-wise mean of :math:`\mathcal{L}_{\rm egalitarian}(m, s^{ab}, s^{ba})`.
+    """    
     batch_size = m.size(0) 
     return -  (batch_sum(m, sab, batch_size) + batch_sum(m.transpose(-1,-2), sba, batch_size)).mean()            
 
 def loss_balance(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+    r"""
+    Calculates a loss to minimize `balance cost <https://papers.nips.cc/paper/2019/hash/cb70ab375662576bd1ac5aaf16b3fca4-Abstract.html>`_.
+    
+    .. math::
+        \mathcal{L}_{\rm balance}(m, s^{ab}, s^{ba}) = min(S^{ab}(m), S^{ba}(m)),
+    
+    where :math:`S^{ab}(m)` and  :math:`S^{ba}(m)` are defined with :obj:`loss_sexequality`.
+    
+    .. note::
+        It is also known that
+        
+        :math:`\mathcal{L}_{\rm balance}(m, s^{ab}, s^{ba}) = \frac{\mathcal{L}_{\rm sexequality}(m, s^{ab}, s^{ba})+\mathcal{L}_{\rm egalitarian}(m, s^{ab}, s^{ba})}{2}`.
+        
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - sab: :math:`(B, N, M)`
+        - sab: :math:`(B, M, N)`
+    Args:
+        m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
+        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        Batch-wise mean of :math:`\mathcal{L}_{\rm balance}(m, s^{ab}, s^{ba})`.
+    """    
     batch_size = m.size(0)
     # return - average of min((m * sab).sum(), (m.t() * sba).sum())
     return - torch.stack([batch_sum(m, sab, batch_size), batch_sum(m.transpose(-1,-2), sba, batch_size)]).min(dim=0)[0].mean()
