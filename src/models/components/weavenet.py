@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from torch_match.preference import to_rank, PreferenceFormat
+from .preference import to_rank, PreferenceFormat
 
 @torch.jit.script
 def max_pool_concat(x,z,dim:int):
