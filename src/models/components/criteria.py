@@ -1,6 +1,6 @@
 import torch
-from torch_match.loss import loss_one2one_correlation_exp, loss_one2one_correlation,loss_one2one_maximize_sum, loss_stability, loss_sexequality, loss_egalitarian, loss_balance
-from torch_match.metric import is_one2one, is_stable, binarize, sexequality_cost, balance_score, egalitarian_score, count_blocking_pairs, PreferenceFormat
+from .loss import loss_one2one_correlation_exp, loss_one2one_correlation,loss_one2one_maximize_sum, loss_stability, loss_sexequality, loss_egalitarian, loss_balance
+from .metric import is_one2one, is_stable, binarize, calc_all_fairness_metrics, count_blocking_pairs, PreferenceFormat
 
 
     
@@ -98,9 +98,11 @@ class CriteriaStableMatching():
         log['is_stable'] = temp_stable
         log['is_success'] = temp_one2one * temp_stable
         log['num_blocking_pair'] = count_blocking_pairs(mb, sab, sba)
-        log['sexequality'] = sexequality_cost(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
-        log['egalitarian'] = egalitarian_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
-        log['balance'] = balance_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        #log['sexequality'] = sexequality_cost(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        #log['egalitarian'] = egalitarian_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        #log['balance'] = balance_score(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        log['sexequality'], log['egalitarian'], log['balance']= calc_all_fairness_metrics(mb, sab, sba, pformat = PreferenceFormat.satisfaction)
+        
         return log, mb
         
     @property
