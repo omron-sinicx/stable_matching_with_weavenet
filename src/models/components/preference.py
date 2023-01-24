@@ -14,7 +14,7 @@ class PreferenceFormat(Enum):
     rank = 2
     cost = 3
     
-def batch_sum(matching : torch.Tensor, mat : torch.Tensor, batch_size : int):    
+def batch_sum(matching : torch.Tensor, mat : torch.Tensor, batch_size : int):
     return (mat * matching).view(batch_size, -1).sum(dim=-1)
 
     

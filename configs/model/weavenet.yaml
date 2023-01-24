@@ -5,10 +5,10 @@ defaults:
 
   
 optimizer:
-  _target_: torch.optim.Adam
+  _target_: torch.optim.AdamW
   _partial_: true
   lr: 0.0001
-  betas: [0.5,0.999]
+  betas: [0.9,0.999]
 #  weight_decay: 0.0
 
 scheduler: null
@@ -20,14 +20,17 @@ scheduler: null
 
 net:
   _target_: src.models.components.weavenet.WeaveNet
-  L: 6
-  D: 64
-  inner_conv_out_channels: 64
-  use_resnet: false # set true when L>6
-  input_side_channels: 1
-  asymmetric: false
-  stream_aggregation: dual_softmax_sqrt # HV | dual_softmax |  dual_softmax_sqrt | None
-  
+  head: 
+      _target_: src.models.components.weavenet.WeaveNetHead
+      input_channel: 2
+      mid_channels: [64, 64, 64, 64, 64, 64]
+      output_channels: [32, 32, 32, 32, 32, 32]
+      calc_residual: null
+      keep_first_var_after: 0
+  output_channels: 1
+  stream_aggregator:
+      _target_: src.models.components.layers.DualSoftmaxSqrt
+      
 criteria:
     _target_: src.models.components.criteria.CriteriaStableMatching
 
@@ -36,4 +39,5 @@ criteria:
     stability_weight: 0.7 # constraint to be stable matching (with one2one_weight together).
 
     fairness: null # null | sexequality | egalitarian | balance
-    fairness_weight: 0.01 # ignored if fairness is null.
+    fairness_weight: 0.001 # ignored if fairness is null.
+    gate_fairness_loss: false

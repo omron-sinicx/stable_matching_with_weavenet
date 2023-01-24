@@ -57,7 +57,7 @@ class NpzDataset(Dataset):
         npz = np.load(filename)
         sab = npz['sab']
         N,M = sab.shape[-2:]
-        return sab.reshape(1,N,M), npz['sba'].reshape(1,M,N), N, M, npz['matches'], npz['fairness'], npz['satisfaction'], npz['gs_matches'], npz['SexEqualityCost'], npz['EgalitarianCost']
+        return sab, npz['sba'], N, M, npz['matches'], npz['fairness'], npz['satisfaction'], npz['gs_matches'], npz['SexEqualityCost'], npz['EgalitarianCost']
         # sab, sba, N, M, matches, fairness, satisfaction, gs_matches, SEq, Egal
 
 
@@ -163,8 +163,8 @@ class UniversalSMIGenerator(Dataset):
             for i in range(sba.shape[0]) :
                 sba[i,np.argsort(sba[i,:])] = np.linspace(0.1, 1, sba.shape[-1])
 
-        sab = sab.reshape([1,na,nb])
-        sba = sba.reshape([1,nb,na])
+        #sab = sab.reshape([na,nb])
+        #sba = sba.reshape([nb,na])
         return sab,sba,na,nb
 
     

@@ -1,31 +1,49 @@
-from typing import Tuple
+from typing import Tuple, Optional
 import torch
 from .preference import batch_sum
         
 __all__ = [
     'loss_one2one_correlation',
+    'loss_one2many_penalty',
     'loss_stability',
     'loss_sexequality',
     'loss_egalitarian',
     'loss_balance',
 ]
+
+def set_mba_t(func):
+    def wrapper(mab: torch.Tensor, mba_t:Optional[torch.Tensor]=None)->torch.Tensor:
+        if mba_t is None:
+            mba_t = mab        
+        return func(mab, mba_t)
+    return wrapper
+
+@set_mba_t
+def loss_one2many_penalty(mab : torch.Tensor, mba_t:torch.Tensor) -> torch.Tensor:    
+    return (torch.clamp(mab.sum(dim=-2)-1,0) + torch.clamp(mba_t.sum(dim=-1)-1,0)).mean(dim=-1)
+
+'''
 def loss_one2one_maximize_sum(m : torch.Tensor) -> torch.Tensor:
     #this function assumes that $m$ is preliminary dual-softmaxed.
     n = min(m.size(-2), m.size(-1))
-    return 1.0 - ((m.view(m.size(0), -1).sum(dim=-1) / n)).mean()
+    return 1.0 - ((m.view(m.size(0), -1).sum(dim=-1) / n))
+'''
 
-def loss_one2one_correlation_exp(m : torch.Tensor, epsilon:float=10**-7) -> torch.Tensor:
-    m_exp = torch.clamp(m, epsilon).exp() # add epsilon to m for numerical stability.
-    mc_norm = m_exp.norm(p=2,dim=-1,keepdim=True)
-    mr_norm = m_exp.norm(p=2,dim=-2,keepdim=True)
-    N,M = m.shape[-2:]
+@set_mba_t
+def loss_one2one_correlation_exp(mab : torch.Tensor, mba_t:torch.Tensor, epsilon:float=10**-7) -> torch.Tensor:
+    mab_exp = torch.clamp(mab, epsilon).exp() # add epsilon to m for numerical stability.
+    mba_t_exp = torch.clamp(mba_t, epsilon).exp() # add epsilon to m for numerical stability.
+    mc_norm = mab_exp.norm(p=2,dim=-2,keepdim=True)
+    mr_norm = mba_t_exp.norm(p=2,dim=-1,keepdim=True)
+    N,M = mab.shape[-2:]
     Z = (N+M)/(2*N*M)
     
     batch_size = m.size(0)
-    dM = ((m_exp)/mc_norm * (m_exp)/mr_norm).view(batch_size, -1).sum(dim=-1)*(Z)
-    return 1 - dM.mean()
+    dM = ((mab_exp)/mc_norm * (mba_t_exp)/mr_norm).view(batch_size, -1).sum(dim=-1).mean(dim=-1)*(Z)
+    return 1.0 - dM
 
-def loss_one2one_correlation(m : torch.Tensor) -> torch.Tensor:
+@set_mba_t
+def loss_one2one_correlation(mab : torch.Tensor, mba_t:torch.Tensor, epsilon:float=10**-7) -> torch.Tensor:
     r"""
     Calculates a loss to maintain :math:`m` to be a doubly-stochastic matrix, which is a contiously-relaxed one-to-one matching.
     
@@ -43,20 +61,18 @@ def loss_one2one_correlation(m : torch.Tensor) -> torch.Tensor:
         The coefficient :math:`\frac{N+M}{2NM}` can be :math:`\frac{1}{\max(N,M)}` for :math:`N\neq M` cases?
         
     """    
-    mc_norm = m.norm(p=2,dim=-1,keepdim=True)
-    mr_norm = m.norm(p=2,dim=-2,keepdim=True)
-    N,M = m.shape[-2:]
+    mc_norm = torch.clamp(mab.norm(p=2,dim=-2,keepdim=True), epsilon)
+    mr_norm = torch.clamp(mba_t.norm(p=2,dim=-1,keepdim=True), epsilon)
+    N,M = mab.shape[-2:]
     Z = (N+M)/(2*N*M)
     
-    batch_size = m.size(0)
-    dM = ((m)/mc_norm * (m)/mr_norm).view(batch_size, -1).sum(dim=-1)*(Z)
-    return 1 - dM.mean()
+    batch_size = mab.size(0)
+    dM = ((mab)/mc_norm * (mba_t)/mr_norm).view(batch_size, -1).sum(dim=-1)*(Z)
+    return 1.0 - dM
 
-
-@torch.jit.script
 def _loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, epsilon:float=10**-7) -> torch.Tensor:
     '''
-    originally proposed in [Shira Li, "Deep Learning for Two-Sided Matching Markets"](https://www.math.harvard.edu/media/Li-deep-learning-thesis.pdf)
+    originally proposed in `Shira Li, "Deep Learning for Two-Sided Matching Markets" <https://www.math.harvard.edu/media/Li-deep-learning-thesis.pdf>`_
     '''
     uns=m.new_zeros(1)
     if not (sab.shape[0]==sba.shape[1] and sab.shape[0]==m.shape[0]):
@@ -86,7 +102,7 @@ def _loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, ep
         uns += (unsab*unsba).sum()
     return uns
 
-def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r"""
     Calculates a loss to minimize violation of stability constraints of stable marriage problem, originally proposed in 
     `Shira Li, "Deep Learning for Two-Sided Matching Markets" <https://www.math.harvard.edu/media/Li-deep-learning-thesis.pdf>`_
@@ -100,18 +116,19 @@ def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> 
     Shape:
         - m:  :math:`(B, N, M)`
         - sab: :math:`(B, N, M)`
-        - sab: :math:`(B, M, N)`
+        - sba_t: :math:`(B, N, M)`
     Args:
         m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
         sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
-        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+        sba_t: a satisfaction at matching of agents in side :math:`b` to side :math:`a` (transposed).  
     Returns:
         The calculated `expected ex post stability violation` of :math:`\mathcal{L}_{\rm stability}(m, s^{ab}, s^{ba})`.
         
     """
-    return torch.stack([_loss_stability(_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]).mean()
+    sba = sba_t.transpose(-1,-2)
+    return torch.stack([_loss_stability(_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]).squeeze(-1)
 
-def loss_sexequality(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+def loss_sexequality(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r"""
     Calculates a loss to minimize `sex-equality cost <https://core.ac.uk/download/pdf/160454594.pdf>`_.
     
@@ -124,18 +141,18 @@ def loss_sexequality(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -
     Shape:
         - m:  :math:`(B, N, M)`
         - sab: :math:`(B, N, M)`
-        - sab: :math:`(B, M, N)`
+        - sba_t: :math:`(B, N, M)`
     Args:
         m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
         sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
-        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+        sba_t: a satisfaction at matching of agents in side :math:`b` to side :math:`a` (transposed).  
     Returns:
         Batch-wise mean of :math:`\mathcal{L}_{\rm sexequality}(m, s^{ab}, s^{ba})`.
     """
-    batch_size = m.size(0) 
-    return (batch_sum(m, sab, batch_size) - batch_sum(m.transpose(-1,-2), sba, batch_size)).abs().mean()
+    batch_size = m.size(0)
+    return (batch_sum(m, sab, batch_size) - batch_sum(m, sba_t, batch_size)).abs()
 
-def loss_egalitarian(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+def loss_egalitarian(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r"""
     Calculates a loss to minimize `egalitarian cost <https://core.ac.uk/download/pdf/160454594.pdf>`_.
     
@@ -147,18 +164,19 @@ def loss_egalitarian(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -
     Shape:
         - m:  :math:`(B, N, M)`
         - sab: :math:`(B, N, M)`
-        - sab: :math:`(B, M, N)`
+        - sba_t: :math:`(B, N, M)`
+        - output: :math: `(B)`
     Args:
         m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
         sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
-        sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
+        sba_t: a satisfaction at matching of agents in side :math:`b` to side :math:`a` (transposed).  
     Returns:
-        Batch-wise mean of :math:`\mathcal{L}_{\rm egalitarian}(m, s^{ab}, s^{ba})`.
+        loss :math:`\mathcal{L}_{\rm egalitarian}(m, s^{ab}, s^{ba})`.
     """    
     batch_size = m.size(0) 
-    return -  (batch_sum(m, sab, batch_size) + batch_sum(m.transpose(-1,-2), sba, batch_size)).mean()            
+    return -  (batch_sum(m, sab, batch_size) + batch_sum(m, sba_t, batch_size))
 
-def loss_balance(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
+def loss_balance(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r"""
     Calculates a loss to minimize `balance cost <https://papers.nips.cc/paper/2019/hash/cb70ab375662576bd1ac5aaf16b3fca4-Abstract.html>`_.
     
@@ -176,15 +194,17 @@ def loss_balance(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> to
     Shape:
         - m:  :math:`(B, N, M)`
         - sab: :math:`(B, N, M)`
-        - sab: :math:`(B, M, N)`
+        - sba_t: :math:`(B, N, M)`
+        - output: :math: `(B)`
+
     Args:
         m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
         sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
         sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
     Returns:
-        Batch-wise mean of :math:`\mathcal{L}_{\rm balance}(m, s^{ab}, s^{ba})`.
+        loss :math:`\mathcal{L}_{\rm balance}(m, s^{ab}, s^{ba})`.
     """    
     batch_size = m.size(0)
     # return - average of min((m * sab).sum(), (m.t() * sba).sum())
-    return - torch.stack([batch_sum(m, sab, batch_size), batch_sum(m.transpose(-1,-2), sba, batch_size)]).min(dim=0)[0].mean()
+    return - batch_sum(m, sab, batch_size).min(batch_sum(m, sba_t, batch_size))
 
