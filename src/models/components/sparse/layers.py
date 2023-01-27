@@ -1,8 +1,101 @@
 # sparse weavenet layers.
+import torch
+from torch import nn
+from typing import Optional, Callable, Tuple
 from torch_scatter import scatter_max #, scatter_min, scatter_mean
 from torch_scatter.composite import scatter_softmax
 from ..layers import ConcatMerger
 
+def gumbel_sigmoid_logits(logits:torch.Tensor,
+                          tau:float=1.,
+                          hard:bool=False,
+                  )->torch.Tensor:
+    sampler =  torch.distributions.RelaxedBernoulli(tau, logits=logits)    
+    y_soft = sampler.rsample()
+    if hard:
+        # do resampling trick
+        y_hard = (y_soft > 0.5).to(logits.dtype)
+        ret = y_hard - y_soft.detach() + y_soft
+    else:
+        ret = y_soft
+    return ret
+
+                 
+class LinearMaskInferenceOr(nn.Module):
+    def __init__(self,
+                 dim_src:int=-3,
+                 dim_tar:int=-2,
+                 drop_rate:float = 0.5,
+                 tau:float = 1.0,
+                )->None:
+        r"""        
+        Args:
+            in_channels: the number of input channels.
+            out_channels: the number of output channels at the second convolution.
+            tau: the temperature of gumbel softmax
+        """ 
+        super().__init__()
+        self.tau = tau
+        self.dim_src = dim_src
+        self.dim_tar = dim_tar
+        self.drop_rate = drop_rate
+        
+    def build(self,
+              input_channels:int,
+              output_channels:int = 1,)->None:
+        self.linear = nn.Linear(input_channels, output_channels, bias=True)
+        
+    def hard_sampling(self, x: torch.Tensor, dim:int)->torch.Tensor:
+        x = self.linear(x)
+        y_soft = gumbel_sigmoid_logits(x, self.tau, hard=False)
+        K = max(int(y_soft.size(dim) * (1.0-self.drop_rate)), 1)
+        kth_val = y_soft.kthvalue(K, dim=dim, keepdim=True)[0]
+        y_hard = (y_soft >= kth_val).to(x.dtype)
+        return y_hard -y_soft.detach() + y_soft
+        
+    def forward(self,
+                xab: torch.Tensor,
+                xba_t: torch.Tensor,
+               )->torch.Tensor:        
+        xab = self.hard_sampling(xab, self.dim_src)
+        xba_t = self.hard_sampling(xba_t, self.dim_tar)
+        y = xab + xba_t
+        y[y==2.0] /= 2
+        return y
+    
+
+class SparseDenseAdaptor(nn.Module):
+    def __init__(self, mask:torch.Tensor):
+        # (\ldots, N, M)
+        self.shape = tuple(mask.shape[:-1])
+        self.N, self.M = mask.shape[-3:-1]
+        self.mask_lo = mask.view(-1, self.N, self.M)
+        self.indices = torch.nonzero(self.mask_lo).t()
+        self.src_vertex_id = self.indices[0]*self.N+self.indices[1]
+        self.tar_vertex_id = self.indices[0]*self.M+self.indices[2]
+        
+    def _local_view(self,
+                   x:torch.Tensor)->torch.Tensor:
+        C = x.size(-1)
+        return x.view(-1, self.N, self.M, C)
+        
+    @torch.jit.ignore
+    def to_sparse(self,
+                x: torch.Tensor)->torch.Tensor:
+        # (\ldots, N, M, C)
+        x = self._local_view(x)
+        C = x.size(-1)
+        values = x[self.mask_lo>0.5].view(-1, C)
+        return values
+    
+    def to_dense(self,
+                 x: torch.Tensor,
+                 base: Optional[torch.Tensor]=None)->torch.Tensor:
+        shape = self.shape + (x.size(-1),)
+        x = torch.sparse_coo_tensor(self.indices, x, shape, device=x.device, dtype=x.dtype).to_dense()
+        return x
+        
+    
 class IndexSelectFormatter(nn.Module):
     def forward(self,
                 x:torch.Tensor,
@@ -11,7 +104,7 @@ class IndexSelectFormatter(nn.Module):
                )->torch.Tensor:
         return torch.index_select(x, dim, vertex_id)
         
-class MaxPoolingAggregator(nn.Module):
+class MaxPoolingAggregatorSp(nn.Module):
     def __init__(self):
         r"""
         Args:
@@ -35,10 +128,10 @@ class MaxPoolingAggregator(nn.Module):
            x_aggregated
 
         """        
-        x_max, _ = scatter_max(x_sp.values(), vertex_id, dim)
+        x_max, _ = scatter_max(x_sp, vertex_id, dim)
         return self.formatter(x_max, vertex_id, dim)
 
-class SetEncoderBase(nn.Module):
+class SetEncoderBaseSp(nn.Module):
     r"""
     
     Applies abstracted set-encoding process.
@@ -71,7 +164,7 @@ class SetEncoderBase(nn.Module):
         
     def forward(self, 
                 x:torch.Tensor,
-                vertex_id: torch.Tensor,
+                vertex_id: torch.Tensor, # the only difference from dense SetEncoderBase
                )->torch.Tensor:
         r"""
         Shape:
@@ -91,7 +184,7 @@ class SetEncoderBase(nn.Module):
         return self.second_process(z)
 
         
-class SetEncoderPointNet(SetEncoderBase):
+class SetEncoderPointNetSp(SetEncoderBaseSp):
     def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
         r"""        
         Args:
@@ -105,14 +198,16 @@ class SetEncoderPointNet(SetEncoderBase):
             
         super().__init__(
             first_process, 
-            MaxPoolingAggregator(),
+            MaxPoolingAggregatorSp(),
             ConcatMerger(dim_feature=-1),
             second_process,
             **kwargs,
         )
         
-
-class DualSoftmax(nn.Module):
+StreamAggregatorSp = Callable[
+    [torch.Tensor,torch.Tensor,torch.Tensor, Optional[torch.Tensor]],
+    Tuple[torch.Tensor,torch.Tensor,torch.Tensor]]
+class DualSoftmaxSp(nn.Module):
     r"""
     
     Applies the dual-softmax calculation to a batched matrices. DualSoftMax is originally proposed in `LoFTR (CVPR2021) <https://zju3dv.github.io/loftr/>`_. 
@@ -166,7 +261,7 @@ class DualSoftmax(nn.Module):
         zab, zba = self.apply_softmax(xab, src_id, tar_id, xba=xba)
         return zab * zba, zab, zba
 
-class DualSoftmaxSqrt(DualSoftmax):
+class DualSoftmaxSqrtSp(DualSoftmaxSp):
     r"""
     
     A variation of :obj:`DualSoftMax` for evenly weighting backward values for two streams.
@@ -202,7 +297,7 @@ class DualSoftmaxSqrt(DualSoftmax):
         zab, zba = self.apply_softmax(xab, src_id, tar_id, xba=xba)
         return torch.clamp(zab*zba, self.epsilon).sqrt(), zab, zba
 
-class DualSoftmaxFuzzyLogicAnd(DualSoftmax):
+class DualSoftmaxFuzzyLogicAndSp(DualSoftmaxSp):
     r"""
     
     Applies the calculation proposed in `Shira Li, "Deep Learning for Two-Sided Matching Markets" <https://www.math.harvard.edu/media/Li-deep-learning-thesis.pdf>`_.
@@ -239,4 +334,13 @@ class DualSoftmaxFuzzyLogicAnd(DualSoftmax):
         zab, zba = self.apply_softmax(xab, src_id, tar_id, xba=xba)
         return zab.min(zba), zab, zba            
 
+if __name__ == "__main__":
+    #_ = WeaveNetOldImplementation(2, 2,1)
+    _ = WeaveNet(
+            WeaveNetHead6(1,), 2, #input_channel:int,
+                 [4,8,16], #out_channels:List[int],
+                 [2,4,8], #mid_channels:List[int],1,2,2)
+                 calc_residual=[False, False, True],
+                 keep_first_var_after = 0,
+                 stream_aggregator = DualSoftMaxSqrt())
     

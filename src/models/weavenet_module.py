@@ -62,7 +62,7 @@ class WeaveNetLitModule(LightningModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False, ignore=["net"])
 
-        self.net = net
+        self.net = net #torch.jit.script(net)
         self.computational_graph_logged = False
         
         # loss functions        

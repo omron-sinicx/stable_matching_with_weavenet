@@ -1,6 +1,8 @@
 from typing import Tuple, Optional
 import torch
 from .preference import batch_sum
+
+#from functorch import vmap
         
 __all__ = [
     'loss_one2one_correlation',
@@ -127,7 +129,7 @@ def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -
     """
     sba = sba_t.transpose(-1,-2)
     return torch.stack([_loss_stability(_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]).squeeze(-1)
-
+    
 def loss_sexequality(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r"""
     Calculates a loss to minimize `sex-equality cost <https://core.ac.uk/download/pdf/160454594.pdf>`_.

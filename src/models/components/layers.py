@@ -144,7 +144,7 @@ class RepeatFormatter(nn.Module):
             x_vertex = x_vertex.unsqueeze(dim_target)
         else:
             assert(ndim == x_vertex.dim())
-            assert(x_vertex.shape[dim_target]==1)
+            #assert(x_vertex.shape[dim_target]==1)
 
         tar_shape = list(x_vertex.shape)
         tar_shape[dim_target] = x_edge_shape[dim_target]
@@ -309,7 +309,7 @@ class SetEncoderPointNet(SetEncoderBase):
     
 
             
-StreamAggregator = Callable[[torch.Tensor,torch.Tensor],Tuple[torch.Tensor,torch.Tensor,torch.Tensor]]
+StreamAggregator = Callable[[torch.Tensor,Optional[torch.Tensor], bool],Tuple[torch.Tensor,torch.Tensor,torch.Tensor]]
 class DualSoftmax(nn.Module):
     r"""
     
@@ -376,12 +376,12 @@ class DualSoftmaxSqrt(DualSoftmax):
     .. math::
         \text{DualSoftmaxSqrt}(x^{ab}_{ij}, x^{ba}_{ij}) = \sqrt{\text{DualSoftmax}(x^{ab}_{ij}, x^{ba}_{ij})}
     
-    """
-    epsilon:float=10**-7
+    """    
     def forward(self, 
                 xab:torch.Tensor, 
                 xba:Optional[torch.Tensor]=None, 
                 is_xba_transposed:bool=True)->Tuple[torch.Tensor,torch.Tensor,torch.Tensor]:
+        epsilon:float=10**-7
         r""" Calculate the dual softmax for batched matrices.
         Shape:
            - x_ab: :math:`(B, \ldots, N_1, M_1, D)`
@@ -398,7 +398,7 @@ class DualSoftmaxSqrt(DualSoftmax):
            values (mab * mba_t).sqrt(), mab (=softmax(xab, dim=-2)), mba_t (=softmax(xba_t, dim=-1)
         """
         zab, zba_t = self.apply_softmax(xab, xba, is_xba_transposed)
-        return torch.clamp(zab*zba_t, self.epsilon).sqrt(), zab, zba_t
+        return torch.clamp(zab*zba_t, epsilon).sqrt(), zab, zba_t
 
 class DualSoftmaxFuzzyLogicAnd(DualSoftmax):
     r"""
@@ -434,86 +434,6 @@ class DualSoftmaxFuzzyLogicAnd(DualSoftmax):
         """
         zab, zba_t = self.apply_softmax(xab, xba, is_xba_transposed)
         return zab.min(zba_t), zab, zba_t
-    
-    
-    
-def gumbel_sigmoid_logits(logits:torch.Tensor,
-                  tau:float=1.,
-                   hard:bool=False,
-                  )->torch.Tensor:
-    sampler =  torch.distributions.RelaxedBernoulli(tau, logits=logits)    
-    y_soft = sampler.rsample()
-    if hard:
-        # do resampling trick
-        y_hard = (resampled > 0.5).to(logits.dtype)
-        ret = y_hard - y_soft.detach() + y_soft
-    else:
-        ret = y_soft
-    return ret
-
-                 
-class LinearMaskInference(nn.Module):
-    def __init__(self,
-                 input_channels:int,
-                 output_channels:int = 1,
-                 tau:float = 1,
-                 hard:bool = True,
-                )->None:
-        r"""        
-        Args:
-            in_channels: the number of input channels.
-            out_channels: the number of output channels at the second convolution.
-            tau: the temperature of gumbel softmax
-        """ 
-        super().__init__()
-        self.linear(input_channels, output_channels, bias=True)
-        self.tau = tau
-        self.hard = hard
-        
-    def forward(self,
-                xab: torch.Tensor,
-                xba_t: torch.Tensor,
-               )->torch.Tensor:
-        xab = self.linear(xab)
-        xba_t = self.linear(xba_t)
-        logits = (xab * xba_t).sqrt()
-        return gumbel_sigmoid_logits(logits, self.tau, self.hard)
-    
-class SparseDenseAdaptor(nn.Module):
-    def __init__(self, mask:torch.Tensor):
-        # (\ldots, N, M)
-        self.shape = mask.shape
-        self.N, self.M = mask.shape[-2:]
-        self.mask_lo = mask.view(-1, self.N, self.M)
-        self.indices = torch.nonzero(self.mask_lo).t()
-        self.src_node_id = self.indices[0]*self.N+self.indices[1]
-        self.tar_node_id = self.indices[0]*self.M+self.indices[2]
-        
-    def local_view(self,
-                   x:torch.Tensor)->torch.Tensor:
-        C = x.size(-1)
-        return x.view(-1, self.N, self.M, C)
-        
-    def global_view(self,
-                    x:torch.Tensor)->torch.Tensor:
-            return x.view(self.shape)
-        
-    def to_sparse(self,
-                x: torch.Tensor)->torch.Tensor:
-        # (\ldots, N, M, C)
-        x = self.local_view(x)
-        C = x.size(-1)
-        values = x[self.mask_lo>0.5].view(-1, C)
-        x = torch.sparse_coo_tensor(self.indices, values, x.shape, device=x.device, dtype=x.dtype)
-        return x
-    
-    def to_dense(self,
-                 x: torch.Tensor,
-                 base: Optional[torch.Tensor]=None)->torch.Tensor:
-        if base is None:
-            base = torch.zeros(x.shape)
-        base[list(self.indices)] = x.values()
-        return base
         
 class CrossConcatVertexFeatures(Interactor):
     def __init__(self,

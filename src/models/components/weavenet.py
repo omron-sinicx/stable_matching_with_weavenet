@@ -1,9 +1,12 @@
 import torch
 from torch import nn
+
 from .preference import to_rank, PreferenceFormat
 from .layers import *
+from copy import deepcopy
 
 from typing import List, Optional
+from collections import UserList
 
 try:
     # Literal is available with python >=3.8.0
@@ -12,83 +15,43 @@ except:
     # pip install typing_extensions with python < 3.8.0
     from typing_extensions import Literal
 
-class WeaveNet(nn.Module):
+class TrainableMatchingModule(nn.Module):
     def __init__(self,
                  head:nn.Module,
                  output_channels:int=1,
-                stream_aggregator:Optional[StreamAggregator] = DualSoftmaxSqrt(dim_src=-3, dim_tar=-2)):
+                 pre_interactor:Optional[CrossConcat] = CrossConcat(),
+                 stream_aggregator:Optional[StreamAggregator] = DualSoftmaxSqrt(dim_src=-3, dim_tar=-2)):
         super().__init__()
+        self.pre_interactor = pre_interactor
         self.head = head
-        input_channels_last = head.interactor.output_channels(head.output_channels)
         self.last_layer = nn.Sequential(
-            nn.Linear(input_channels_last, output_channels, bias=False),
+            nn.Linear(head.output_channels, output_channels, bias=False),
             BatchNormXXC(output_channels),
         )
         self.stream_aggregator = stream_aggregator
+        
     def forward(self, xab:torch.Tensor, xba_t:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        xab, xba_t = self.head(xab, xba_t)
-        xab, xba_t = self.head.interactor(xab, xba_t)
+        
+        # first interaction
+        if self.pre_interactor is not None:
+            xab, xba_t = self.pre_interactor(xab, xba_t)
+            
+        # head
+        xab, xba_t = self.head.forward(xab, xba_t)
+
+        # wrap up into logits
         xab = self.last_layer(xab)
         xba_t = self.last_layer(xba_t)
+        
+        # aggregate two streams while applying logistic regression.
         m, mab, mba_t = self.stream_aggregator(xab, xba_t)
         return m, mab, mba_t
-        
-        
-        
-class TwoStreamGNNHead(nn.Module):
-    def __init__(self,
-                 modules: Tuple[nn.ModuleList, nn.ModuleList],
-                 interactors: List[Interactor]=None,                 
-                 calc_residual:Optional[List[bool]]=None,
-                 keep_first_var_after:int=0,
-                ):
-        super().__init__()
-        
-        
-        self.L = len(modules[0])
-        assert(self.L == len(modules[1]))
-        
-        self.modules = list(modules) # store as a list to make `self.modules` rewritable 
-        
-        self.interactors = interactors
-        assert(self.L == len(self.interactors))
-        
-        if calc_residual is None:
-            self.calc_residual = [False] * self.L
-            self.use_residual = False
-        else:            
-            assert(self.L == len(calc_residual))
-            self.calc_residual = calc_residual
-            self.use_residual = sum(self.calc_residual)>0
-            self.keep_first_var_after = keep_first_var_after
-            assert(0 == sum(self.calc_residual[:self.keep_first_var_after]))
-                    
-        
-    def forward(self, xab:torch.Tensor, xba_t:torch.Tensor)->torch.Tensor:
-        xab_keep, xba_t_keep = None, None
-        for l, (interactor, module0, module1, calc_res) in enumerate(zip(self.interactors, self.modules[0],self.modules[1], self.calc_residual)):
-            xab, xba_t = interactor(xab, xba_t)            
-            xab = module0(xab, dim_target=-2)
-            xba_t = module1(xba_t, dim_target=-3)
-            
-            if not self.use_residual:
-                continue
-                
-            if i==self.keep_first_var_after:
-                # keep values after the first module process.
-                xab_keep, xba_t_keep = xab, xba_t
-                
-            if calc_res:
-                xab_keep, xab = xab, xab + xab_keep
-                xba_t_keep, xba = xba_t, xba_t + xba_t_keep
-        
-        return xab, xba_t
 
-SubblockProcOrder = Literal['ena','nae','ean','ane']
-class SubBlock(nn.Module):
+UnitProcOrder = Literal['ena','nae','ean','ane']
+class Unit(nn.Module):
     def __init__(self, 
                  encoder:nn.Module, 
-                 order: SubblockProcOrder,
+                 order: UnitProcOrder,
                  normalizer:Optional[nn.Module]=None, 
                  activator:Optional[nn.Module]=None):
         super().__init__()
@@ -130,56 +93,166 @@ class SubBlock(nn.Module):
         return x
     
     def forward(self, x:torch.Tensor, dim_target:int)->torch.Tensor:
-        return x
+        return x    
     
-
-class WeaveNetHead(TwoStreamGNNHead):
-    interactor = CrossConcat(dim_feature=-1)
+class UnitList(UserList):
     def __init__(self,
-                 input_channel:int,
-                 output_channels:List[int],
-                 mid_channels:List[int],
-                 first_interactor:nn.Module=CrossConcat(dim_feature=-1),
-                 *args,
-                 **kwargs):
+                 input_channels:int,
+                 output_channels_list:List[int],
+                ):
+        self.input_channels = input_channels
+        self.output_channels_list = output_channels_list    
         
-
-        # set in_channels at each layer
-        in_chs = [input_channel]+[self.calc_in_channel(out_ch) for out_ch in output_channels[:-1] ]
-        
-        # L: the number of layers
+    def build(self, interactor:Optional[Interactor]=None):            
+            
+        if interactor:
+            in_chs = [self.input_channels]+[interactor.output_channels(out_ch) for out_ch in self.output_channels_list[:-1] ]
+        else:
+            in_chs = [self.input_channels]+[out_ch for out_ch in self.output_channels_list[:-1] ]
+            
         L = len(in_chs)
+        self._build(in_chs)
+                
+    def _build(self, in_channels_list:List[int]):     
+        self.data = [] # this parent class behaves as an empty Unit list.
         
-        assert(L==len(output_channels))
-        assert(L==len(mid_channels))
+ExclusiveElementsOfUnit = Literal['none', 'normalizer', 'all'] # standard, biased, dual
+class MatchingModuleHead(nn.Module):
+    def __init__(self,
+                 module_units: UnitList,
+                 interactor:Optional[Interactor]=None,
+                 calc_residual:Optional[List[bool]]=None,
+                 keep_first_var_after:int=0,
+                 exclusive_elements_of_unit:ExclusiveElementsOfUnit='none',
+                ):
+        super().__init__()
+        if interactor:
+            self.interactor = interactor
+        module_units.build(interactor)
+        # prepare for residual paths.
+        L = len(module_units)
+        if calc_residual is None:
+            self.calc_residual = [False] * L
+            self.use_residual = False
+        else:            
+            assert(L == len(calc_residual))
+            self.calc_residual = calc_residual
+            self.use_residual = sum(self.calc_residual)>0
+            self.keep_first_var_after = keep_first_var_after
+            assert(0 == sum(self.calc_residual[:self.keep_first_var_after]))
             
-        modules:List[SubBlock] = [self.build_module(in_ch, mid_ch, out_ch) for in_ch, mid_ch, out_ch in zip(in_chs, mid_channels, output_channels)]
+        self.build_two_stream_structure(module_units, exclusive_elements_of_unit, interactor is None)
         
+        self.input_channels = module_units.input_channels
         
-        interactors:List[CrossConcat] = [first_interactor] + [self.interactor for l in range(1,L)]
-        super().__init__(
-            (modules, modules),
-            interactors,       
-            *args,
-            **kwargs,
-        )
-        self.weavenet_modules = nn.ModuleList(modules)
-        self.output_channels = output_channels[-1]
+        if interactor:
+            self.output_channels = self.interactor.output_channels(module_units.output_channels_list[-1])
+        else:
+            self.output_channels = module_units.output_channels_list[-1]
 
-    def calc_in_channel(self, prev_out:int)->int:
-        return 2 * prev_out
+        
+    def build_two_stream_structure(self, 
+                                    module_units: List[nn.Module],
+                                    exclusive_elements_of_unit:ExclusiveElementsOfUnit='none',
+                                    is_single_stream:bool = False,
+                                   )->None:
+        # register module_units as a child nn.Module.
+        self.__units = nn.ModuleList(module_units)
+        
+        if is_single_stream:
+            # !!!override forward by forward_single_stream!!!
+            assert(exclusive_elements_of_unit=='none') 
+            # assert non-default exclusive_... value for the fail-safe (the value is ignored when is_single_stream==True).
+            self.forward = self.forward_single_stream
+            self.stream = module_units
+        # make 2nd stream
+        elif exclusive_elements_of_unit == 'none':
+            self.streams = [module_units, module_units] # shallow copy
+            return
+        elif exclusive_elements_of_unit == 'all':
+            module_units2 = deepcopy(module_units) # deep copy
+            self.streams = [module_units, module_units2]
+            self.__units2 = nn.ModuleList(module_units2)
+            return
+        elif exclusive_elements_of_unit == 'normalizer':
+            module_normalizers2 = [deepcopy(m.normalizer) for m in module_units]  # deep copy normalizers   
+            self.__units2 = nn.ModuleList(module_normalizers2)
+            module_units2:List[ModuleUnits] = [                
+                ModuleUnit(
+                    unit.encoder, # shallow copy
+                    unit.order, # shallow copy
+                    normalizer, # deep-copied normalizer 
+                    unit.activator, # shallow copy
+                )
+                for unit, normalizer in zip(module_units, module_normalizers2)
+            ]
+            self.streams = [module_units, module_units2]
+            return
+        else:
+            raise RuntimeError("Unknown ExclusiveElementsOfUnit: {}".format(exclusive_elements_of_unit))
             
-    def build_module(self, in_ch:int, mid_ch:int, out_ch:int)->nn.Module:
-        activation = nn.PReLU()
-        return SubBlock(
-            SetEncoderPointNet(in_ch, mid_ch, out_ch),
-            'ena', # encoder -> normalization -> activation
-            BatchNormXXC(out_ch),
-            activation,
-        )
+            
+    def forward(self, xab:torch.Tensor, xba_t:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
+        xab_keep, xba_t_keep = None, None
+        for i, (unit0, unit1, calc_res) in enumerate(zip(self.streams[0],self.streams[1], self.calc_residual)):
+            xab = unit0(xab, dim_target=-2)
+            xba_t = unit1(xba_t, dim_target=-3)
+            
+            if self.use_residual:              
+                if i==self.keep_first_var_after:
+                    # keep values after the directed unit's process.
+                    xab_keep = xab
+                    xba_t_keep = xba_t
+                if calc_res:
+                    xab_keep, xab = xab, xab + xab_keep
+                    xba_t_keep, xba = xba_t, xba_t + xba_t_keep
+            
+            xab, xba_t = self.interactor(xab, xba_t)            
+        
+        return xab, xba_t
     
-class WeaveNetPlusHead(WeaveNetHead):
+    def forward_single_stream(self, xab:torch.Tensor, xba_t:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
+        x_keep = None
+        for l, (unit, calc_res) in enumerate(zip(self.stream, self.calc_residual)):
+            if l%2==0:
+                dim = -3
+            else:
+                dim = -2
+            xab = unit(xab, dim_target=dim)
+            
+            if self.use_residual:              
+                if i==self.keep_first_var_after:
+                    # keep values after the directed unit's process.
+                    xab_keep = xab
+                if calc_res:
+                    xab_keep, xab = xab, xab + xab_keep            
+        return xab, xab
     
+
+
+        
+class WeaveNetUnitList(UnitList):
+    def __init__(self,
+                 input_channels:int,
+                 output_channels_list:List[int],
+                 mid_channels_list:List[int],
+            ):
+        self.mid_channels_list = mid_channels_list
+        super().__init__(input_channels, output_channels_list)
+        assert(len(output_channels_list) == len(mid_channels_list))               
+
+        
+    def _build(self, in_channels_list:List[int]):
+        self.data = [
+            Unit(
+                SetEncoderPointNet(in_ch, mid_ch, out_ch),
+                'ena',
+                BatchNormXXC(out_ch),
+                nn.PReLU(),)
+            for in_ch, mid_ch, out_ch in zip(in_channels_list, self.mid_channels_list, self.output_channels_list)
+        ]
+        
+class WeaveNetExperimentalUnitList(WeaveNetUnitList):
     class Encoder(SetEncoderBase):
         def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
             r"""        
@@ -199,208 +272,56 @@ class WeaveNetPlusHead(WeaveNetHead):
                 second_process,
                 **kwargs,
             )
-
+    def _build(self, in_channels_list:List[int]):
+        self.data = [
+            Unit(
+                self.Encoder(in_ch, mid_ch, out_ch),
+                'ena',
+                BatchNormXXC(out_ch),
+                nn.PReLU(),)
+            for in_ch, mid_ch, out_ch in zip(in_channels_list, self.mid_channels_list, self.out_channels_list)
+        ]                 
+        
+class WeaveNetHead(MatchingModuleHead):
     def __init__(self,
-                 *args,
-                 **kwargs):
-        super().__init__(*args, **kwargs)
-        
-    def calc_in_channel(self, prev_out:int)->int:
-        return 2*prev_out
-
-            
-    def build_module(self, in_ch:int, mid_ch:int, out_ch:int)->nn.Module:
-        activation = nn.PReLU()
-        return SubBlock(
-            self.Encoder(in_ch, mid_ch, out_ch),
-            'ena', # encoder -> normalization -> activation
-            BatchNormXXC(out_ch),
-            activation,           
-        )
-    
-
-
-class WeaveNetBatchNormSplitHead(WeaveNetHead):
-    def __init__(self, input_channel:int,
-                 output_channels:List[int],
-                 mid_channels:List[int],
-                 *args, **kwargs):
-        super().__init__(input_channel,
-                         output_channels,
-                         mid_channels,
-                         *args, **kwargs)
-        
-        # register only batchnorms as a sub-module since module2 are mostly a shallow copy of self.module[0]
-        self.batchnorms4stream2 = nn.ModuleList([nn.BatchNorm2D(out_ch) for out_ch in output_channels])
-        modules:List[SubBlock] = [
-            SubBlock(
-                self.module[0][i].encoder,
-                self.module[0][i].order,
-                self.module[0][i].normalizer,
-                self.module[0][i].activator,
-            ) for i in range(self.L)
-        ]    
-        self.modules[1] = modules2
-        self.weavenet_modules2 = nn.ModuleList(self.modules[1])
-
-        
-class WeaveNetDualHead(WeaveNetHead):
-    def __init__(self, input_channel:int,
-                 output_channels:List[int],
-                 mid_channels:List[int],
-                 *args, **kwargs):
-        super().__init__(input_channel,
-                         output_channels,
-                         mid_channels,
-                         *args, **kwargs)
-        
-        # build another modules for the 2nd stream.
-        self.modules[1] = [self.build_module(in_ch, mid_ch, out_ch) for in_ch, mid_ch, out_ch in zip(in_chs, mid_channels, output_channels)]
-
-class SingleStreamGNNHead(nn.Module):
-    def __init__(self,
-                 modules: nn.ModuleList,
-                 interactor: Optional[Interactor]=None,                 
+                 input_channels:int,
+                 output_channels_list:List[int],
+                 mid_channels_list:List[int],
                  calc_residual:Optional[List[bool]]=None,
                  keep_first_var_after:int=0,
+                 exclusive_elements_of_unit:ExclusiveElementsOfUnit='none',
+                 is_single_stream:bool=False,
                 ):
-        super().__init__()
-        
-        
-        self.L = len(modules)
-        
-        self.modules = list(modules) # store as a list to make `self.modules` rewritable 
-        
-        self.interactor = interactor
-        
-        if calc_residual is None:
-            self.use_residual = False
-        else:            
-            assert(self.L == len(calc_residual))
-            self.calc_residual = calc_residual
-            self.use_residual = sum(self.calc_residual)>0
-            self.keep_first_var_after = keep_first_var_after
-            assert(0 == sum(self.calc_residual[:self.keep_first_var_after]))
+        if is_single_stream:
+            interactor = None
+        else:
+            interactor = CrossConcat()
             
+        super().__init__(
+            WeaveNetUnitList(input_channels, output_channels_list, mid_channels_list),
+            interactor = interactor,            
+            calc_residual = calc_residual,
+            keep_first_var_after = keep_first_var_after,
+            exclusive_elements_of_unit = exclusive_elements_of_unit,
+        )        
         
-        
-    def forward(self, xab:torch.Tensor, xba_t:torch.Tensor)->torch.Tensor:
-        x_keep = None
-        x = self.interactor(xab, xba_t)
-        for l, module in enumerate(self.modules):
-            if l%2==0:
-                dim = -2
-            else:
-                dim = -3
-            x = module(x, dim_target=dim)
-            
-            if not self.use_residual:
-                continue
-                
-            if i==self.keep_first_var_after:
-                # keep values after the first module process.
-                x_keep = x
-                
-            if self.calc_residual[l]:
-                x_keep, x = x, x + x_keep
-        return x
-    
-class WeaveNetSingleStreamHead(SingleStreamGNNHead):
+class WeaveNetExperimentalHead(MatchingModuleHead):
     def __init__(self,
-                 input_channel:int,
+                 input_channels:int,
                  output_channels:List[int],
                  mid_channels:List[int],
-                 *args,
-                 **kwargs):
-        
-        
-        # set in_channels at each layer
-        in_chs = [input_channel]+[2*out_ch for out_ch in output_channels[:-1] ]
-        
-        # L: the number of layers
-        L = len(in_chs)
-        
-        assert(L==len(output_channels))
-        assert(L==len(mid_channels))
-        
-        modules:List[SubBlock] = [self.build_module(in_ch, mid_ch, out_ch) for in_ch, mid_ch, out_ch in zip(in_chs, mid_channels, output_channels)]
-        
-        super().__init__(
-            modules,
-            CrossConcat(),       
-            *args,
-            **kwargs,
-        )
-        self.weavenet_modules = nn.ModuleList(modules)
-    
-
-            
-    def build_module(self, in_ch:int, mid_ch:int, out_ch:int)->nn.Module:
-        activation = nn.PReLU()
-        module = SubBlock(
-            SetEncoderPointNet(in_ch, mid_ch, out_ch),
-            nn.BatchNorm2d(out_ch),
-            activation,           
-        )
-        return module
-    
-
-WeaveNetType = Literal['standard', 'batchnorm split', 'dual', 'plus']        
-class WeaveNetHead6(nn.Module):
-    def __init__(self, 
-                 input_channels:int, 
-                 mid_channels:int = 64,
-                 output_channels:int = 32,
-                 mode: WeaveNetType='standard',
+                 calc_residual:Optional[List[bool]]=None,
+                 keep_first_var_after:int=0,
+                 exclusive_elements_of_unit:ExclusiveElementsOfUnit='none',
                 ):
-        super().__init__()
-        if mode == 'standard':
-            self.backbone = WeaveNetHead
-        elif mode == 'batchnorm split':
-            self.backbone = WeaveNetBatchNormSplitHead
-        elif mode == 'dual':
-            self.backbone = WeaveNetDualHead
-        elif mode == 'plus':
-            self.backbone = WeaveNetPlusHead
-        else:
-            raise NotImplementedError()
-        self.build(input_channels, mid_channels, output_channels)
+        super().__init__(
+            WeaveNetExperimentalUnitList(input_channels, output_channels_list, mid_channels_list),
+            interactor = CrossConcat(),            
+            calc_residual = calc_residual,
+            keep_first_var_after = keep_first_var_after,
+            exclusive_elements_of_unit = exclusive_elements_of_unit,
+        )        
         
-    def build(self, 
-                 input_channels:int, 
-                 mid_channels:int = 64,
-                 output_channels:int = 32,
-             )->None:
-        self.module = self.backbone(
-            input_channel,
-            [output_channels]*6,
-            [mid_channels]*6,
-            calc_residual = None,
-            keep_first_var_after=0,
-        )
-        
-    def forward(self, xab, xba_t):
-        return self.module(xab, xba_t)
-        
-class WeaveNetHead18(WeaveNetHead6):
-    def build(self, 
-                 input_channels:int=2, 
-                 mid_channels:int=64,
-                 output_channels:int=32,
-             )->None:
-        super().build()
-        
-        self.module2 = self.backbone(
-            64,
-            [mid_channels]*12,
-            [output_channels]*12,
-            calc_residual = [0,0,1]*4,
-            keep_first_var_after=0,
-        )
-        
-    def forward(self, xab, xba_t):
-        xab, xba_t = self.module(xab, xba_t)            
-        return self.module2(xab, xba_t)
 """
 @torch.jit.script
 def max_pool_concat(x,z,dim:int):

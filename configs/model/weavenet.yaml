@@ -19,14 +19,17 @@ scheduler: null
 #  patience: 10
 
 net:
-  _target_: src.models.components.weavenet.WeaveNet
+  _target_: src.models.components.weavenet.TrainableMatchingModule
   head: 
       _target_: src.models.components.weavenet.WeaveNetHead
-      input_channel: 2
-      mid_channels: [64, 64, 64, 64, 64, 64]
-      output_channels: [32, 32, 32, 32, 32, 32]
+      input_channels: 2
+      output_channels_list: [32, 32, 32, 32, 32, 32]
+      mid_channels_list: [64, 64, 64, 64, 64, 64]
       calc_residual: null
       keep_first_var_after: 0
+      exclusive_elements_of_unit: 'none' # 'none'|'normalizer'|'all' for standard|bias-remove|dual weavenet.
+      is_single_stream: false
+          
   output_channels: 1
   stream_aggregator:
       _target_: src.models.components.layers.DualSoftmaxSqrt
