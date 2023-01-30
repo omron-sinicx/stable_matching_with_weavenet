@@ -6,12 +6,18 @@ from torch_scatter import scatter_max #, scatter_min, scatter_mean
 from torch_scatter.composite import scatter_softmax
 from ..layers import ConcatMerger
 
+@torch.jit.ignore
+def resampling_relaxed_Bernoulli(logits:torch.Tensor, tau:float)->torch.Tensor:
+    sampler = torch.distributions.RelaxedBernoulli(tau, logits=logits)  
+    return sampler.rsample()
+
 def gumbel_sigmoid_logits(logits:torch.Tensor,
                           tau:float=1.,
                           hard:bool=False,
                   )->torch.Tensor:
-    sampler =  torch.distributions.RelaxedBernoulli(tau, logits=logits)    
-    y_soft = sampler.rsample()
+    #sampler = MyRelaxedBernoulli(tau, logits=logits)   
+    # y_soft = sampler.rsample()
+    y_soft = resampling_relaxed_Bernoulli(logits, tau)
     if hard:
         # do resampling trick
         y_hard = (y_soft > 0.5).to(logits.dtype)
@@ -20,6 +26,12 @@ def gumbel_sigmoid_logits(logits:torch.Tensor,
         ret = y_soft
     return ret
 
+def kthlargest_resampling(x: torch.Tensor, dim:int, tau:float, drop_rate:float)->torch.Tensor:
+        y_soft = gumbel_sigmoid_logits(x, tau, hard=False)
+        K = max(int(y_soft.size(dim) * (1.0-drop_rate)), 1)
+        kth_val = y_soft.kthvalue(K, dim=dim, keepdim=True)[0]
+        y_hard = (y_soft >= kth_val).to(x.dtype)
+        return y_hard -y_soft.detach() + y_soft
                  
 class LinearMaskInferenceOr(nn.Module):
     def __init__(self,
@@ -45,29 +57,26 @@ class LinearMaskInferenceOr(nn.Module):
               output_channels:int = 1,)->None:
         self.linear = nn.Linear(input_channels, output_channels, bias=True)
         
-    def hard_sampling(self, x: torch.Tensor, dim:int)->torch.Tensor:
-        x = self.linear(x)
-        y_soft = gumbel_sigmoid_logits(x, self.tau, hard=False)
-        K = max(int(y_soft.size(dim) * (1.0-self.drop_rate)), 1)
-        kth_val = y_soft.kthvalue(K, dim=dim, keepdim=True)[0]
-        y_hard = (y_soft >= kth_val).to(x.dtype)
-        return y_hard -y_soft.detach() + y_soft
+    
         
     def forward(self,
                 xab: torch.Tensor,
                 xba_t: torch.Tensor,
-               )->torch.Tensor:        
-        xab = self.hard_sampling(xab, self.dim_src)
-        xba_t = self.hard_sampling(xba_t, self.dim_tar)
+               )->torch.Tensor: 
+        xab = self.linear.forward(xab)
+        xab = kthlargest_resampling(xab, self.dim_src, self.tau, self.drop_rate)
+        xba_t = self.linear.forward(xba_t)
+        xba_t = kthlargest_resampling(xba_t, self.dim_tar, self.tau, self.drop_rate)
         y = xab + xba_t
         y[y==2.0] /= 2
         return y
     
 
-class SparseDenseAdaptor(nn.Module):
+class SparseDenseAdaptor():
     def __init__(self, mask:torch.Tensor):
         # (\ldots, N, M)
-        self.shape = tuple(mask.shape[:-1])
+        
+        self.shape = mask.shape[:-1]
         self.N, self.M = mask.shape[-3:-1]
         self.mask_lo = mask.view(-1, self.N, self.M)
         self.indices = torch.nonzero(self.mask_lo).t()
@@ -79,7 +88,6 @@ class SparseDenseAdaptor(nn.Module):
         C = x.size(-1)
         return x.view(-1, self.N, self.M, C)
         
-    @torch.jit.ignore
     def to_sparse(self,
                 x: torch.Tensor)->torch.Tensor:
         # (\ldots, N, M, C)
@@ -88,6 +96,7 @@ class SparseDenseAdaptor(nn.Module):
         values = x[self.mask_lo>0.5].view(-1, C)
         return values
     
+    @torch.jit.ignore
     def to_dense(self,
                  x: torch.Tensor,
                  base: Optional[torch.Tensor]=None)->torch.Tensor:
@@ -270,7 +279,6 @@ class DualSoftmaxSqrtSp(DualSoftmaxSp):
         \text{DualSoftmaxSqrt}(x^{ab}_{ij}, x^{ba}_{ij}) = \sqrt{\text{DualSoftmax}(x^{ab}_{ij}, x^{ba}_{ij})}
     
     """
-    epsilon:float=10**-7
     def forward(self, 
                 xab:torch.Tensor, 
                 src_id:torch.Tensor,
@@ -294,8 +302,9 @@ class DualSoftmaxSqrtSp(DualSoftmaxSp):
        Returns:
            values (mab * mba_t).sqrt(), mab (=softmax(xab, dim=-2)), mba_t (=softmax(xba_t, dim=-1)
         """
+        epsilon:float=10**-7
         zab, zba = self.apply_softmax(xab, src_id, tar_id, xba=xba)
-        return torch.clamp(zab*zba, self.epsilon).sqrt(), zab, zba
+        return torch.clamp(zab*zba, epsilon).sqrt(), zab, zba
 
 class DualSoftmaxFuzzyLogicAndSp(DualSoftmaxSp):
     r"""

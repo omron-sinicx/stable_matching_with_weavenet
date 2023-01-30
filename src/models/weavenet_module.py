@@ -62,7 +62,7 @@ class WeaveNetLitModule(LightningModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False, ignore=["net"])
 
-        self.net = net #torch.jit.script(net)
+        self.net = torch.jit.script(net)
         self.computational_graph_logged = False
         
         # loss functions        
@@ -94,8 +94,8 @@ class WeaveNetLitModule(LightningModule):
             self.offset = None
 
     def forward(self, sab: torch.Tensor, sba_t:torch.Tensor):
-        if not isinstance(self.net, torch.jit.ScriptModule):
-            self.net = torch.jit.trace(self.net, (sab, sba_t))
+        #if not isinstance(self.net, torch.jit.ScriptModule):
+        #    self.net = torch.jit.trace(self.net, (sab, sba_t))
         return self.net(sab,sba_t)
 
     def on_train_start(self):

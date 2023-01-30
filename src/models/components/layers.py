@@ -75,8 +75,9 @@ class CrossConcat(Interactor):
            (zab, zba_t) calculated as :math:`\text{CrossConcat}([x^{ab}, {x^{ba}}^\top])` .
 
         """
-        zab = torch.cat([xab,xba_t],dim=self.dim_feature)
+        zab_fut = torch.jit.fork(torch.cat, [xab,xba_t],dim=self.dim_feature)
         zba_t = torch.cat([xba_t,xab],dim=self.dim_feature)
+        zab = torch.jit.wait(zab_fut)
         return (zab, zba_t)
 
 
@@ -112,8 +113,9 @@ class CrossDifferenceConcat(Interactor):
 
         """
         #merged = xab.min(xba_t)
-        zab = torch.cat([xab, xab - xba_t],dim=self.dim_feature)
+        zab_fut = torch.jit.fork(torch.cat, [xab, xab - xba_t],dim=self.dim_feature)
         zba_t = torch.cat([xba_t, xba_t - xab],dim=self.dim_feature)
+        zab = torch.jit.wait(zab_fut)
         return (zab, zba_t)
     
 
@@ -230,6 +232,33 @@ class DifferenceConcatMerger(ConcatMerger):
         x_vertex[:, :D_min] -= x_edge.view(-1, D_edge)[:, :D_min]
         x_vertex = x_vertex.view(shape)
         return super().forward(x_edge, x_vertex)
+
+class ConcatMergerAny(nn.Module):   
+    def __init__(self, dim_feature:int=-1):
+        super().__init__()
+        self.dim_feature = dim_feature
+        
+    def forward(self,
+               xs:List[torch.Tensor])->torch.Tensor:
+        r"""
+        Applies concatenation to edge feature and vertex feature
+
+        .. math::
+            \text{Concat}(x_{edge}, x_{vertex}) = \text{cat}([x_{edge}, x_{vertex}]),
+        Shape:
+           - x_edge: :math:`(\ldots, N, M, D_{edge})`
+           - x_src_vertex: :math:`(\ldots, N, M, D_{vertex})`
+           - x_tar_vertex: :math:`(\ldots, N, M, D_{vertex})`
+           - output:  :math:`(\ldots, N, M, D_{edge}+2*D_{vertex})`　 
+        Args:
+           x_edge: a batched tensor of edge-wise features
+           x_src_vertex: a batched tensor of features for each source vertices.
+           x_tar_vertex: a batched tensor of features for each target vertices.
+
+        Returns:
+           x_merged
+        """
+        return torch.cat(xs, dim=self.dim_feature)
     
 class SetEncoderBase(nn.Module):
     r"""
@@ -307,8 +336,110 @@ class SetEncoderPointNet(SetEncoderBase):
             **kwargs,
         )
     
+class SetEncoderPointNetCrossDirectional(SetEncoderBase):
+    def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
+        r"""        
+        Args:
+            in_channels: the number of input channels.
+            mid_channels: the number of output channels at the first convolution.
+            out_channels: the number of output channels at the second convolution.
+           
+        """ 
+        first_process = nn.Linear(in_channels, mid_channels)
+        second_process = nn.Linear(in_channels + 2*mid_channels, output_channels, bias=False)    
 
-            
+        super().__init__(
+            first_process, 
+            MaxPoolingAggregator(),
+            ConcatMergerAny(dim_feature=-1),
+            second_process,
+            **kwargs,
+        )
+    def forward(self, 
+                x:torch.Tensor,
+                dim_target:int)->torch.Tensor:
+        r"""
+        Shape:
+           - x: :math:`(\ldots)` (not defined with this abstractive class)
+           - output:  :math:`(\ldots)`　 (not defined with this abstractive class)
+
+        Args:
+           x: an input tensor.
+
+        Returns:
+           z_edge_features, z_vertex_features
+
+        """        
+        z = self.first_process(x)
+        if dim_target==-2:
+            dim_src = -3
+        elif dim_target==-3:
+            dim_src = -2
+        else:
+            raise RuntimeError("Unexpected dim_tar: {}.".format(dim_target))
+        z_src_vertex_fut = xab_fut = torch.jit.fork(self.aggregator, z, dim_src)
+        z_tar_vertex = self.aggregator(z, dim_target)
+        z_src_vertex = torch.jit.wait(z_src_vertex_fut)
+        z = self.merger(x, z_src_vertex, z_tar_vertex, z_src_vertex.max(z_tar_vertex))
+        return self.second_process(z)
+        '''
+        if not self.return_vertex_feature:
+            return z
+        return z, z_vertex
+        '''
+class SetEncoderPointNetTotalDirectional(SetEncoderBase):
+    def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
+        r"""        
+        Args:
+            in_channels: the number of input channels.
+            mid_channels: the number of output channels at the first convolution.
+            out_channels: the number of output channels at the second convolution.
+           
+        """ 
+        first_process = nn.Linear(in_channels, mid_channels)
+        second_process = nn.Linear(in_channels + 3*mid_channels, output_channels, bias=False)    
+
+        super().__init__(
+            first_process, 
+            MaxPoolingAggregator(),
+            ConcatMergerAny(dim_feature=-1),
+            second_process,
+            **kwargs,
+        )
+    def forward(self, 
+                x:torch.Tensor,
+                dim_target:int)->torch.Tensor:
+        r"""
+        Shape:
+           - x: :math:`(\ldots)` (not defined with this abstractive class)
+           - output:  :math:`(\ldots)`　 (not defined with this abstractive class)
+
+        Args:
+           x: an input tensor.
+
+        Returns:
+           z_edge_features, z_vertex_features
+
+        """        
+        z = self.first_process(x)
+        if dim_target==-2:
+            dim_src = -3
+        elif dim_target==-3:
+            dim_src = -2
+        else:
+            raise RuntimeError("Unexpected dim_tar: {}.".format(dim_target))
+        z_src_vertex_fut = xab_fut = torch.jit.fork(self.aggregator, z, dim_src)
+        z_tar_vertex = self.aggregator(z, dim_target)
+        z_src_vertex = torch.jit.wait(z_src_vertex_fut)
+        z = self.merger(x, z_src_vertex, z_tar_vertex, z_src_vertex.max(z_tar_vertex))
+        return self.second_process(z)
+        '''
+        if not self.return_vertex_feature:
+            return z
+        return z, z_vertex
+        '''             
+        
+        
 StreamAggregator = Callable[[torch.Tensor,Optional[torch.Tensor], bool],Tuple[torch.Tensor,torch.Tensor,torch.Tensor]]
 class DualSoftmax(nn.Module):
     r"""
@@ -337,8 +468,9 @@ class DualSoftmax(nn.Module):
             xba_t = xba
         else:
             xba_t = xba.transpose(-3,-2)
-        zab = self.sm_col(xab)
+        zab_fut = torch.jit.fork(self.sm_col, xab)
         zba = self.sm_row(xba_t)
+        zab = torch.jit.wait(zab_fut)
         return zab, zba
     
     
