@@ -278,7 +278,7 @@ class WeaveNetExperimentalUnitListGenerator(WeaveNetUnitListGenerator):
         return [
             Unit(
                 #self.Encoder(in_ch, mid_ch, out_ch),
-                SetEncoderPointNetTotalDirectional(in_ch, mid_ch, out_ch),
+                SetEncoderPointNetCrossDirectional(in_ch, mid_ch, out_ch),
                 'ena',
                 BatchNormXXC(out_ch),
                 nn.PReLU(),)

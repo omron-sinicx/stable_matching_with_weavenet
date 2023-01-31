@@ -9,9 +9,21 @@ from torch.nn.modules.batchnorm import _BatchNorm
 class BatchNormXXC(nn.Module):
     r"""
     
-    Applies BatchNorm1D to :math:`(\ldots, C)`-shaped tensors.
+    Applies :class:`BatchNorm1d` to :math:`(\ldots, C)`-shaped tensors. This module is prepered since :class:`nn.BatchNorm2d` assumes the input format of :math:`(B, C, H, W)` but if kernel size is 1, :class:`nn.Conv2d` to :math:`(B, C, H, W)` is slower than Linear to :math:`(B, H, W, C)`, which is our case for bipartite-graph edge embedding of :math:`(B, N, M, C)`.
+    
+    
+    **Example of Usage**::
+    
+        # assume batch_size=8, the problem instance size is 5x5,  and each edge feature is 32 channels.
+        B, N, M, C = 8, 5, 5, 32        
+        linear = nn.Linear(32, 64)
+        bn = BatchNormXXC(64)
+        x = torch.rand((B, N, M, C), dtype=torch.float) # prepare a random input.
+        x = linear(x)
+        x = bn(x)
     
     """
+    
     def __init__(self, C)->None:
         super().__init__()
         self.bn = nn.BatchNorm1d(num_features=C)
@@ -34,6 +46,11 @@ class BatchNormXXC(nn.Module):
         return x.view(shape)
         
 class Interactor(nn.Module):
+    r"""
+    
+    Abstract :class:`CrossConcat` and any other interactor between feature blocks of two stream architecture. It must have a function :func:`output_channels` to report its resultant feature's output channels (estimated based on the :class:`input_channels`).    
+    
+    """    
     def output_channels(self, input_channels:int)->torch.Tensor:        
         return input_channels
     def forward(self, 
@@ -49,12 +66,38 @@ class CrossConcat(Interactor):
     
     .. math::
         \text{CrossConcat}([x^{ab}, {x^{ba}}^\top]) = [\text{cat}([x^{ab}, {x^{ba}}^\top], dim=-1), \text{cat}([{x^{ba}}^\top,x^{ab}], dim=-1)]
+        
+    
+    **Example of Usage**::
+    
+        # prepare an instance of this class.
+        interactor = CrossConcat()
+        
+        # assume batch_size=8, the problem instance size is 6x5,  and each edge feature is 32 channels.
+        B, N, M, C = 8, 6, 5, 32        
+        
+        xab = torch.rand((B, N, M, C), dtype=torch.float) # prepare a random input. # NxM
+        xba = torch.rand((B, M, N, C), dtype=torch.float) # prepare a random input. # MxN
+        xba_t = xba.transpose(1,2)
+        zab, zba_t = interactor(xab, xba_t)
+        assert(xab.size(-1)*2 == 2*C)
+        assert(xba_t.size(-1)*2 == 2*C)
+        assert(interactor.output_channels(C)==2*C)
+
     """
     def __init__(self, dim_feature:int=-1):
         super().__init__()
         self.dim_feature = dim_feature
     
     def output_channels(self, input_channels:int)->torch.Tensor:
+        r"""
+        Args:
+           input_channels: assumed input channels.
+           
+        Returns:
+           output_channels calculated based on the args.
+
+        """        
         return input_channels*2
         
     def forward(self, 
@@ -62,12 +105,12 @@ class CrossConcat(Interactor):
                 xba_t:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Shape:
-           - xab: :math:`(\ldots, D)`
-           - xba_t: :math:`(\ldots, D)`
-           - output(zab, zba_t):  :math:`[(\ldots, 2*D),(\ldots, 2*D)]`
+           - xab: :math:`(\ldots, C)`
+           - xba_t: :math:`(\ldots, C)`
+           - output(zab, zba_t):  :math:`[(\ldots, 2*C),(\ldots, 2*C)]`
 
         Args:
-           xab: batched feature map, typically with the size of (B, N, M, D) where ij-th feature at :math:`(i, j)\in N \times M` represent edges from side `a` to `b`.
+           xab: batched feature map, typically with the size of (B, N, M, C) where ij-th feature at :math:`(i, j)\in N \times M` represent edges from side `a` to `b`.
            
            xba_t: batched feature map with the same shape with xab, and represent edges from side `b` to `a`.
 
@@ -85,8 +128,12 @@ class CrossDifferenceConcat(Interactor):
     r"""
     
     Applies cross-concatenation of mean and difference (experimental). 
+    
     .. math::
-        \text{CrossConcat}([x^{ab}, {x^{ba}}^\top]) = [\text{cat}([x^{ab}, {x^{ba}}^\top], dim=-3), \text{cat}([{x^{ba}}^\top,x^{ab}], dim=-3)]
+        \text{CrossConcat}([x^{ab}, {x^{ba}}^\top]) = [\text{cat}([x^{ab}, {x^{ba}}^\top], dim=-1), \text{cat}([{x^{ba}}^\top,x^{ab}], dim=-1)]
+        
+    .. note::
+        This class was not very effective with stable matching test.
     """
     def __init__(self, dim_feature:int=-1):
         super().__init__()
@@ -99,12 +146,12 @@ class CrossDifferenceConcat(Interactor):
                 xba_t:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
         r"""
         Shape:
-           - xab: :math:`(\ldots, D)`
-           - xba_t: :math:`(\ldots, D)`
-           - output(zab, zba_t):  :math:`[(\ldots, 2*D),(\ldots, 2*D)]`
+           - xab: :math:`(\ldots, C)`
+           - xba_t: :math:`(\ldots, C)`
+           - output(zab, zba_t):  :math:`[(\ldots, 2*C),(\ldots, 2*C)]`
 
         Args:
-           xab: batched feature map, typically with the size of (B, N, M, D) where ij-th feature at :math:`(i, j)\in N \times M` represent edges from side `a` to `b`.
+           xab: batched feature map, typically with the size of (B, N, M, C) where ij-th feature at :math:`(i, j)\in N \times M` represent edges from side `a` to `b`.
            
            xba_t: batched feature map with the same shape with xab, and represent edges from side `b` to `a`.
 
@@ -380,7 +427,7 @@ class SetEncoderPointNetCrossDirectional(SetEncoderBase):
         z_src_vertex_fut = xab_fut = torch.jit.fork(self.aggregator, z, dim_src)
         z_tar_vertex = self.aggregator(z, dim_target)
         z_src_vertex = torch.jit.wait(z_src_vertex_fut)
-        z = self.merger(x, z_src_vertex, z_tar_vertex, z_src_vertex.max(z_tar_vertex))
+        z = self.merger(x, z_src_vertex, z_tar_vertex)
         return self.second_process(z)
         '''
         if not self.return_vertex_feature:
