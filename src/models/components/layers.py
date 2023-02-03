@@ -6,10 +6,31 @@ from typing import Optional, Tuple, List, Callable
 
 from torch.nn.modules.batchnorm import _BatchNorm
 
+__all__ = [
+    'SetEncoderBase',
+    'SetEncoderPointNet',
+    'SetEncoderPointNetCrossDirectional',
+    'SetEncoderPointNetTotalDirectional',
+    'Interactor',
+    'CrossConcat',
+    'CrossConcatVertexFeatures',
+    'CrossDifferenceConcat',
+    'MaxPoolingAggregator',
+    'StreamAggregator',
+    'DualSoftmax',
+    'DualSoftmaxSqrt',
+    'DualSoftmaxFuzzyLogicAnd',
+    'BatchNormXXC',
+    'RepeatFormatter',    
+    'ConcatMerger',
+    'DifferenceConcatMerger',
+    'ConcatMergerAny',
+]
+
 class BatchNormXXC(nn.Module):
     r"""
     
-    Applies :class:`BatchNorm1d` to :math:`(\ldots, C)`-shaped tensors. This module is prepered since :class:`nn.BatchNorm2d` assumes the input format of :math:`(B, C, H, W)` but if kernel size is 1, :class:`nn.Conv2d` to :math:`(B, C, H, W)` is slower than Linear to :math:`(B, H, W, C)`, which is our case for bipartite-graph edge embedding of :math:`(B, N, M, C)`.
+    Applies :class:`BatchNorm1d` to :math:`(\ldots, C)`-shaped tensors. This module is prepered since :class:`nn.BatchNorm2d` assumes the input format of :math:`(B, C, H, W)` but if kernel size is 1, :class:`nn.Conv2d` to :math:`(B, C, H, W)` is slower than :class:`nn.Linear` to :math:`(B, H, W, C)`, which is our case for bipartite-graph edge embedding of :math:`(B, N, M, C)`. In addition, :class:`nn.Linear` works well with sparse cases.
     
     
     **Example of Usage**::
@@ -48,16 +69,22 @@ class BatchNormXXC(nn.Module):
 class Interactor(nn.Module):
     r"""
     
-    Abstract :class:`CrossConcat` and any other interactor between feature blocks of two stream architecture. It must have a function :func:`output_channels` to report its resultant feature's output channels (estimated based on the :class:`input_channels`).    
+    Abstract :class:`CrossConcat` and any other interactor between feature blocks of two stream architecture. It must have a function :func:`output_channels` to report its resultant feature's output channels (estimated based on the **input_channels**).    
     
     """    
     def output_channels(self, input_channels:int)->torch.Tensor:        
+        r"""
+        Args:
+           input_channels: assumed input channels.
+           
+        Returns:
+           output_channels: **input_channels** (dummy)
+        """
         return input_channels
     def forward(self, 
                 xab: torch.Tensor, 
                 xba_t:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
-        # do nothing
-        return xab, xba_t
+        raise RuntimeError("Interactor is an abstract class and should not call its forward function.")
     
 class CrossConcat(Interactor):
     r"""
@@ -95,9 +122,8 @@ class CrossConcat(Interactor):
            input_channels: assumed input channels.
            
         Returns:
-           output_channels calculated based on the args.
-
-        """        
+           output_channels: :math:`2*` **input_channels**
+        """
         return input_channels*2
         
     def forward(self, 
@@ -130,7 +156,7 @@ class CrossDifferenceConcat(Interactor):
     Applies cross-concatenation of mean and difference (experimental). 
     
     .. math::
-        \text{CrossConcat}([x^{ab}, {x^{ba}}^\top]) = [\text{cat}([x^{ab}, {x^{ba}}^\top], dim=-1), \text{cat}([{x^{ba}}^\top,x^{ab}], dim=-1)]
+        \text{CrossDiffConcat}([x^{ab}, {x^{ba}}^\top]) = [\text{cat}([x^{ab}, {x^{ba}}^\top - x^{ab}], \text{dim}=-1), \text{cat}([{x^{ba}}^\top,x^{ab}-{x^{ba}}^\top], \text{dim}=-1)]
         
     .. note::
         This class was not very effective with stable matching test.
@@ -139,6 +165,13 @@ class CrossDifferenceConcat(Interactor):
         super().__init__()
         self.dim_feature = dim_feature
     def output_channels(self, input_channels:int)->torch.Tensor:
+        r"""
+        Args:
+           input_channels: assumed input channels.
+           
+        Returns:
+           output_channels: :math:`2*` **input_channels**
+        """
         return input_channels * 2
         
     def forward(self, 
@@ -151,12 +184,12 @@ class CrossDifferenceConcat(Interactor):
            - output(zab, zba_t):  :math:`[(\ldots, 2*C),(\ldots, 2*C)]`
 
         Args:
-           xab: batched feature map, typically with the size of (B, N, M, C) where ij-th feature at :math:`(i, j)\in N \times M` represent edges from side `a` to `b`.
+           xab: batched feature map, typically with the size of :math:`(B, N, M, C)` where :math:`ij`-th feature at :math:`(i, j)\in N \times M` represent edges from side `a` to `b`.
            
-           xba_t: batched feature map with the same shape with xab, and represent edges from side `b` to `a`.
+           xba_t: batched feature map with the same shape with **xab**, and represent edges from side `b` to `a`.
 
         Returns:
-           (zab, zba_t) calculated as :math:`\text{CrossConcat}([x^{ab}, {x^{ba}}^\top])` .
+           **Tuple[zab, zba_t]** calculated as :math:`\text{CrossDiffConcat}([x^{ab}, {x^{ba}}^\top])` .
 
         """
         #merged = xab.min(xba_t)
@@ -167,18 +200,20 @@ class CrossDifferenceConcat(Interactor):
     
 
 class RepeatFormatter(nn.Module):
+    r"""
+    Reformat a feature to a specific shape by (virtually) repeat the value in `dim_target` dimension.
+    """
         
     def forward(self, 
                 x_vertex:torch.Tensor,
                 x_edge_shape:List[int],
                 dim_target:int)->torch.Tensor:            
         r"""
-        Reformat a feature to a specific shape by repeat the value in `dim_target` dimension.
 
         Shape:
            - x_vertex: :math:`(\ldots, 1, \ldots)`
            - x_edge_shape: :math:`[\ldots, M, \ldots]` where :math:`M` is the number of elements at `dim_target`
-           - dim_target: the repeating target dimension.
+           - dim_target: the repeating target dimension, where the size of **x_vertex** is 1 and **x_edge_shape** is :math:`M`.
            - output: :math:`(\ldots, M, \ldots)`
            
         Args:
@@ -200,25 +235,24 @@ class RepeatFormatter(nn.Module):
         return x_vertex.expand(tar_shape)
 
 class MaxPoolingAggregator(nn.Module):
-    def __init__(self, dim:int=-2):
-        r"""
-        Args:
-            dim: the axis aggregated in the forward function.
-        """
+    r""" Aggregates edge features for each vertex, and virtually reshape it to have the same size (other chann :math:`C`) for merger.
+    """
+    def __init__(self):
         super().__init__()
         self.formatter = RepeatFormatter()
         
     def forward(self, x:torch.Tensor, dim_target:int)->torch.Tensor:
         r"""
         Shape:
-           - x: :math:`(\ldots, M, D)` if dim = -2, otherwise, the axis directed by dim should have M and aggregated while keeping dims.
-           - output:  :math:`(\ldots, 1, D)`　 
+           - x: :math:`(\ldots, N, M, C)` 
+           - output:  :math:`(\ldots, N, M, C)`　 
 
         Args:
            x: an input tensor.
+           dim_target: typically -2 or -3.
 
         Returns:
-           x_aggregated
+           **x_aggregated**
 
         """        
         return self.formatter(x.max(dim=dim_target, keepdim=True)[0], x.shape, dim_target)
@@ -226,6 +260,8 @@ class MaxPoolingAggregator(nn.Module):
 
         
 class ConcatMerger(nn.Module):   
+    r""" Merges edge features and (reformatted) vertex feartures by simple concatenation.
+    """
     def __init__(self, dim_feature:int=-1):
         super().__init__()
         self.dim_feature = dim_feature
@@ -238,19 +274,21 @@ class ConcatMerger(nn.Module):
         .. math::
             \text{Concat}(x_{edge}, x_{vertex}) = \text{cat}([x_{edge}, x_{vertex}]),
         Shape:
-           - x_edge: :math:`(\ldots, D_{edge}, N, M)`
-           - x_vertex: :math:`(\ldots, D_{vertex}, N, M)`
-           - output:  :math:`(\ldots, D_{edge}+D_{vertex}, N, M)`　 
+           - x_edge: :math:`(\ldots, N, M, C_{edge})`
+           - x_vertex: :math:`(\ldots, N, M, C_{vertex})`
+           - output:  :math:`(\ldots, N, M, C_{edge}+C_{vertex})`　 
         Args:
            x_edge: a batched tensor of edge-wise features
            x_vertex: a batched tensor of vertex-wise features
 
         Returns:
-           x_merged
+           **x_merged**
         """
         return torch.cat([x_edge, x_vertex], dim=self.dim_feature)
     
 class DifferenceConcatMerger(ConcatMerger):    
+    r""" A variant of :class:`ConcatMerger` that merges :math:`(x_{vertex} - x_{edge})` instead of :math:`(x_{vertex})`.
+    """
     def forward(self,
                x_edge:torch.Tensor, x_vertex:torch.Tensor)->torch.Tensor:
         r"""
@@ -281,6 +319,9 @@ class DifferenceConcatMerger(ConcatMerger):
         return super().forward(x_edge, x_vertex)
 
 class ConcatMergerAny(nn.Module):   
+    r""" A variant of :class:`ConcatMerger` that merges an arbitrary number of tensors.
+    """
+    
     def __init__(self, dim_feature:int=-1):
         super().__init__()
         self.dim_feature = dim_feature
@@ -308,29 +349,26 @@ class ConcatMergerAny(nn.Module):
         return torch.cat(xs, dim=self.dim_feature)
     
 class SetEncoderBase(nn.Module):
-    r"""
-    
-    Applies abstracted set-encoding process.
+    r"""Applies abstracted set-encoding process.
     
     .. math::
         \text{SetEncoderBase}(x) = \text{second_process}(\text{merger}(x, \text{aggregator}(\text{first_process}(x))))
-    
+        
+    Args:
+       first_process: a callable (and typically trainable) object that converts a :math:`(B, N, M, C_{input})` tensor  to :math:`(B, N, M, C_{mid})`.
+       aggregator: a callable object that aggregate :math:`M` edge features for each of :math:`N` vertices. The resultant tensor is reformatted into the shape of :math:`(B, N, M, C_{mid})` tensor.
+       merger: a callable object that merge  :math:`(B, N, M, C_{input})` edge features and  :math:`(B, N, M, C_{mid})` vertex features into  :math:`(B, N, M, C_{merged})`.
+       second_process: a callable (and typically trainable) object that converts a :math:`(B, N, M, C_{merged})` tensor  to :math:`(B, N, M, C_{output})`.    
+       
     """
+    
     def __init__(self, 
                  first_process: Callable[[torch.Tensor], torch.Tensor], 
-                 aggregator: Callable[[torch.Tensor], torch.Tensor], 
+                 aggregator: Callable[[torch.Tensor, int], torch.Tensor], 
                  merger: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
                  second_process: Callable[[torch.Tensor], torch.Tensor],
                  #return_vertex_feature:bool=False,
                 ):
-        r"""        
-        Args:
-           first_process: a callable (and typically trainable) object that converts a :math:`(B, D_{input}, N, M)` tensor  to :math:`(B, D_{mid}, N, M)`.
-           aggregator: a callable object that aggregate :math:`M` edge features for each of :math:`N` vertices, results in a conversion of tensor from :math:`(B, D_{input}, N, M)` to :math:`(B, D_{mid}, N, 1)`.
-           merger: a callable object that merge  :math:`(B, D_{input}, N, M)` edge features and  :math:`(B, D_{mid}, N, 1)` vertex features into  :math:`(B, D_{merged}, N, M)`.
-           second_process: a callable (and typically trainable) object that converts a :math:`(B, D_{merged}, N, M)` tensor  to :math:`(B, D_{output}, N, M)`.
-
-        """        
         super().__init__()
         self.first_process = first_process
         self.aggregator = aggregator
@@ -343,14 +381,15 @@ class SetEncoderBase(nn.Module):
                 dim_target:int)->torch.Tensor:
         r"""
         Shape:
-           - x: :math:`(\ldots)` (not defined with this abstractive class)
-           - output:  :math:`(\ldots)`　 (not defined with this abstractive class)
+           - x: :math:`(\ldots, N, M, \text{in_channels})`
+           - output:  :math:`(\ldots, N, M, \text{output_channels})`　
 
         Args:
            x: an input tensor.
+           dim_target: the dimension of edge's target vertex.           
 
         Returns:
-           z_edge_features, z_vertex_features
+           z_edge_features
 
         """        
         z = self.first_process(x)
@@ -364,14 +403,14 @@ class SetEncoderBase(nn.Module):
         '''
 
 class SetEncoderPointNet(SetEncoderBase):
+    r""" Applies a process proposed in `DeepSet <https://papers.nips.cc/paper/2017/hash/f22e4747da1aa27e363d86d40ff442fe-Abstract.html>`_ and `PointNet <https://github.com/charlesq34/pointnet>`_ to a set of out-edge features of each vertex. See :class:`SetEncoderBase` for its forwarding process.
+    
+    Args:
+        in_channels: the number of input channels.
+        mid_channels: the number of output channels at the first convolution.
+        output_channels: the number of output channels at the second convolution.           
+    """ 
     def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
-        r"""        
-        Args:
-            in_channels: the number of input channels.
-            mid_channels: the number of output channels at the first convolution.
-            out_channels: the number of output channels at the second convolution.
-           
-        """ 
         first_process = nn.Linear(in_channels, mid_channels)
         second_process = nn.Linear(in_channels + mid_channels, output_channels, bias=False)    
             
@@ -382,16 +421,20 @@ class SetEncoderPointNet(SetEncoderBase):
             second_process,
             **kwargs,
         )
+        
     
 class SetEncoderPointNetCrossDirectional(SetEncoderBase):
+    r"""Applies a variation of :class:`SetEncoderPointNet`. This class max-pools in **dim_src** direction in addition to **dim_target** direction of standard SetEncoder. 
+    
+    .. note:
+        This seems effective since it enhances the interaction between two side more frequently.
+
+    Args:
+        in_channels: the number of input channels.
+        mid_channels: the number of output channels at the first convolution.
+        output_channels: the number of output channels at the second convolution.           
+    """ 
     def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
-        r"""        
-        Args:
-            in_channels: the number of input channels.
-            mid_channels: the number of output channels at the first convolution.
-            out_channels: the number of output channels at the second convolution.
-           
-        """ 
         first_process = nn.Linear(in_channels, mid_channels)
         second_process = nn.Linear(in_channels + 2*mid_channels, output_channels, bias=False)    
 
@@ -406,24 +449,22 @@ class SetEncoderPointNetCrossDirectional(SetEncoderBase):
                 x:torch.Tensor,
                 dim_target:int)->torch.Tensor:
         r"""
-        Shape:
-           - x: :math:`(\ldots)` (not defined with this abstractive class)
-           - output:  :math:`(\ldots)`　 (not defined with this abstractive class)
+        **Shape and Args**: same as :class:`SetEncoderPointNet`
 
         Args:
-           x: an input tensor.
+           x: an input tensor of edge features.
+           dim_target: the dimension of edge's target vertex and **must be -3 or -2**.
 
         Returns:
-           z_edge_features, z_vertex_features
-
-        """        
+           **z_edge_features**
+        """
         z = self.first_process(x)
         if dim_target==-2:
             dim_src = -3
         elif dim_target==-3:
             dim_src = -2
         else:
-            raise RuntimeError("Unexpected dim_tar: {}.".format(dim_target))
+            raise RuntimeError("Unexpected dim_tar: {}. It must be -3 or -2.".format(dim_target))
         z_src_vertex_fut = xab_fut = torch.jit.fork(self.aggregator, z, dim_src)
         z_tar_vertex = self.aggregator(z, dim_target)
         z_src_vertex = torch.jit.wait(z_src_vertex_fut)
@@ -434,15 +475,20 @@ class SetEncoderPointNetCrossDirectional(SetEncoderBase):
             return z
         return z, z_vertex
         '''
+        
 class SetEncoderPointNetTotalDirectional(SetEncoderBase):
+    r"""Applies a variation of :class:`SetEncoderPointNet`. This class max-pools all the edge features in addition to :class:`SetEncoderPointNetCrossDirectional`, and concatenate the summerized features to original edge feature. 
+    
+    .. note:
+        Experimentally, this seems not very effective.
+    
+    Args:
+        in_channels: the number of input channels.
+        mid_channels: the number of output channels at the first convolution.
+        output_channels: the number of output channels at the second convolution.
+
+    """ 
     def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
-        r"""        
-        Args:
-            in_channels: the number of input channels.
-            mid_channels: the number of output channels at the first convolution.
-            out_channels: the number of output channels at the second convolution.
-           
-        """ 
         first_process = nn.Linear(in_channels, mid_channels)
         second_process = nn.Linear(in_channels + 3*mid_channels, output_channels, bias=False)    
 
@@ -504,7 +550,7 @@ class DualSoftmax(nn.Module):
         self.sm_col = nn.Softmax(dim=dim_tar)
         self.sm_row = nn.Softmax(dim=dim_src)
         
-    def apply_softmax(self,
+    def _apply_softmax(self,
                       xab:torch.Tensor, 
                       xba:Optional[torch.Tensor],
                       is_xba_transposed:bool,
@@ -536,21 +582,22 @@ class DualSoftmax(nn.Module):
         Args:
            xab: 1st batched matrices.
            
-           xba: 2nd batched matrices. x_ab is used as (not-transposed) x_ba if None. This option corresponds to the original implementation of LoFTR.
+           xba: 2nd batched matrices. If None, **xab** is used as (transposed) **xba**. This option corresponds to the original implementation of LoFTR's dual softmax.
            
-           is_xba_transposed: set False if :math:`(N_1, M_1)==(N_2, M_2)` and set True if :math:`(N_1, M_1)==(M_2, N_2). Default: False
+           is_ba_transposed: set **False** if :math:`(N_1, M_1)==(N_2, M_2)` and set **True** if :math:`(N_1, M_1)==(M_2, N_2)`. Default: **False**.
            
         Returns:
-           values mab * mba_t, mab (=softmax(xab, dim=-2)), mba_t (=softmax(xba_t, dim=-1)
+           a triplet of **(mab * mba_t)**, **mab** (=softmax(xab, dim=-2)), **mba_t** (=softmax(xba_t, dim=-1)
+ 
            
         """
-        zab, zba_t = self.apply_softmax(xab, xba, is_xba_transposed)
+        zab, zba_t = self._apply_softmax(xab, xba, is_xba_transposed)
         return zab * zba_t, zab, zba_t
 
 class DualSoftmaxSqrt(DualSoftmax):
     r"""
     
-    A variation of :obj:`DualSoftMax` for evenly weighting backward values for two streams.
+    A variation of :class:`DualSoftmax`. This variation is effective when **xab** and **xba** derive from different computational flow since the forward sqrt operation amplify the backward gradient to each flow.
     
     .. math::
         \text{DualSoftmaxSqrt}(x^{ab}_{ij}, x^{ba}_{ij}) = \sqrt{\text{DualSoftmax}(x^{ab}_{ij}, x^{ba}_{ij})}
@@ -560,23 +607,21 @@ class DualSoftmaxSqrt(DualSoftmax):
                 xab:torch.Tensor, 
                 xba:Optional[torch.Tensor]=None, 
                 is_xba_transposed:bool=True)->Tuple[torch.Tensor,torch.Tensor,torch.Tensor]:
-        epsilon:float=10**-7
-        r""" Calculate the dual softmax for batched matrices.
-        Shape:
-           - x_ab: :math:`(B, \ldots, N_1, M_1, D)`
-           - x_ba: :math:`(B, \ldots, N_2, M_2, D)`
-           - output:  :math:`(B, \ldots, N_1, M_1, D)`
+        r"""
+        **Shape and Args**: same as :class:`DualSoftmax`
            
         Args:
-            x_ab: 1st batched matrices
-            
-            x_ba: 2nd batched matrices. x_ab is used as (not-transposed) x_ba if None. This option corresponds to the original implementation of LoFTR.
-            
-            is_ba_transposed: True if rows1==cols2 and cols1==rows2. False if rows1 == rows2 and cols1 == cols2. Default: True
-       Returns:
-           values (mab * mba_t).sqrt(), mab (=softmax(xab, dim=-2)), mba_t (=softmax(xba_t, dim=-1)
+           xab: 1st batched matrices.
+           
+           xba: 2nd batched matrices. If None, **xab** is used as (transposed) **xba**. 
+           
+           is_xba_transposed: set **False** if :math:`(N_1, M_1)==(N_2, M_2)` and set **True** if :math:`(N_1, M_1)==(M_2, N_2)`. Default: **False**.
+           
+        Returns:
+           a triplet of **(mab * mba_t).sqrt()**, **mab** (=softmax(xab, dim=-2)), **mba_t** (=softmax(xba_t, dim=-1)
         """
-        zab, zba_t = self.apply_softmax(xab, xba, is_xba_transposed)
+        epsilon:float=10**-7
+        zab, zba_t = self._apply_softmax(xab, xba, is_xba_transposed)
         return torch.clamp(zab*zba_t, epsilon).sqrt(), zab, zba_t
 
 class DualSoftmaxFuzzyLogicAnd(DualSoftmax):
@@ -593,40 +638,60 @@ class DualSoftmaxFuzzyLogicAnd(DualSoftmax):
                 xab:torch.Tensor, 
                 xba:Optional[torch.Tensor]=None, 
                 is_xba_transposed:bool=True)->Tuple[torch.Tensor,torch.Tensor,torch.Tensor]:
-        r""" Calculate the dual softmax for batched matrices.
+        r""" 
                 
-        Shape:
-           - x_ab: :math:`(B, \ldots, N_1, M_1, D)`
-           - x_ba: :math:`(B, \ldots, N_2, M_2, D)`
-           - output:  :math:`(B, \ldots, N_1, M_1, D)`
+        **Shape and Args**: same as :class:`DualSoftmax`
            
         Args:
-           x_ab: 1st batched matrices.
+           xab: 1st batched matrices.
            
-           x_ba: 2nd batched matrices. x_ab is used as (not-transposed) x_ba if None. This option corresponds to the original implementation of LoFTR.
+           xba: 2nd batched matrices. If None, **xab** is used as (transposed) **xba**. 
            
-           is_ba_transposed: set False if :math:`(N_1, M_1)==(N_2, M_2)` and set True if :math:`(N_1, M_1)==(M_2, N_2). Default: False
+           is_ba_transposed: set **False** if :math:`(N_1, M_1)==(N_2, M_2)` and set **True** if :math:`(N_1, M_1)==(M_2, N_2)`. Default: **False**.
            
         Returns:
-           values torch.min(mab, mba_t), mab (=softmax(xab, dim=-2)), mba_t (=softmax(xba_t, dim=-1)
+           a triplet of **torch.min(mab, mba_t)**, **mab** (=softmax(xab, dim=-2)), **mba_t** (=softmax(xba_t, dim=-1)
            
         """
-        zab, zba_t = self.apply_softmax(xab, xba, is_xba_transposed)
+        zab, zba_t = self._apply_softmax(xab, xba, is_xba_transposed)
         return zab.min(zba_t), zab, zba_t
         
 class CrossConcatVertexFeatures(Interactor):
+    r""" CrossConcat vertex features for side `a` and `b`, which are typically provided from a feature extractor.
+
+        Args:
+           dim_a: the dimension of side `a` in the output tensor.
+           dim_b: the dimension of side `b` in the output tensor.
+           compute_similarity: an operator to calculate similarity between two vertex features. If set, the output has an additional channels where the similarity is set.
+           directional_normalization: an normalizer applied to the axe **dim_a** and **dim_b**. If set, the output has two additional channels where normalized similarities on the two axe are set. If compute_similarity is None, this function will be ignored.
+    """
     def __init__(self,
-                 dim_a = -3,
-                 dim_b = -2,
-                 dim_feature = -1,
-                 compute_similarity:Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
-                 directional_normalization:Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-                ):
+             dim_a = -3,
+             dim_b = -2,
+             dim_feature = -1,
+             compute_similarity:Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
+             directional_normalization:Optional[Callable[[torch.Tensor, int], torch.Tensor]] = None,
+            ):
         self.dim_a, self.dim_b, self.dim_feature = dim_a, dim_b, dim_feature
         self.compute_similarity = compute_similarity
         self.directional_normalization = directional_normalization
         
     def forward(self, xa:torch.Tensor, xb:torch.Tensor)->torch.Tensor:
+        r""" Concat vertex features on the two sides `a` and `b`, while appending similarities based on the callback functions.
+                
+        Shape:
+           - x_a: :math:`(\ldots, N, C)`
+           - x_b: :math:`(\ldots, M, C)`
+           - output:  :math:`(\ldots, N, M, C')` if **dim_a** = -3 and **dim_b** = -2. :math:`C' = 2*C` if **compute_similarity** is None,  :math:`C' = 2*C+1` if only **compute_similarity** is set, and :math:`C' = 2*C+2`if both **compute_similarity** and  **directional_normalization** are set.
+           
+        Args:
+           xa: vertex features on the side `a`.
+           
+           xb: vertex features on the side `b`.           
+           
+        Returns:
+           A pair of edge-wise feature block tensors. Its feature consists of :math:`2*C`-dimensional features (whose :math:`ij`-th feature is a concatenation of :math:` and 1 or 2 dimensional similarities (depending on the callback function setting at :func:`__init__`.  
+        """
         xa = xa.unsqueeze(dim = self.dim_b)
         xb = xb.unsqueeze(dim = self.dim_a)        
         shape = xa.shape
@@ -639,14 +704,27 @@ class CrossConcatVertexFeatures(Interactor):
         shape_sim = shape
         shape_sim[self.dim_feature] = 1
         
+        xa = xa.expand(shape)
+        xb = xb.expand(shape)
         if self.directional_normalization is None:
-            return torch.cat([xa.expand(shape), xb.expand(shape), similarity_matrix.view(shape_sim)], dim=self.dim_feature)
+            sim = similarity_matrix.view(shape_sim)
+            xab = torch.cat([xa, sim, xb], dim=self.dim_feature)
+            xba_t = torch.cat([xb, sim, xa], dim=self.dim_feature)
+            return xab, xba_t
         
-        sim_a = self.directional_normalization(similarity_matrix, dim=self.dim_a)
-        sim_b = self.directional_normalization(similarity_matrix, dim=self.dim_b)
-        return  torch.cat([xa.expand(shape), sim_a.view(shape_sim), xb.expand(shape), sim_b.view(shape_sim)], dim=self.dim_feature)
+        sim_a = self.directional_normalization(similarity_matrix, dim=self.dim_a).view(shape_sim)
+        sim_b = self.directional_normalization(similarity_matrix, dim=self.dim_b).view(shape_sim)
+        xab = torch.cat([xa, sim_a, xb, sim_b], dim=self.dim_feature)
+        xba_t =  torch.cat([xb, sim_b, xa, sim_a], dim=self.dim_feature)
         
     def output_channels(self, input_channels:int)->int:
+        r"""
+        Args:
+           input_channels: assumed input channels.
+           
+        Returns:
+           output_channels: :math:`2*` **input_channels** if **self.compute_similarity** is None,  :math:`2*` **input_channels** :math:`+1` if only **self.compute_similarity** is set, and :math:`2*` **input_channels** :math:`+2`if both **self.compute_similarity** and  **self.directional_normalization** are set.
+        """
         output_channels = 2 * input_channels
         if self.compute_similarity is None:
             return output_channels

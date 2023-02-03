@@ -10,6 +10,9 @@ except:
     is_cp_supported = False
 
 class PreferenceFormat(Enum):
+    r"""An Enum class to categorize the format of preference.
+    
+    """
     satisfaction = 1 # assume satisfaction is normalized in range(0.1, 1.0) by the numpy.linspace function.
     rank = 2
     cost = 3

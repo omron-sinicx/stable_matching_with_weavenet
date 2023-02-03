@@ -15,6 +15,7 @@ from tempfile import NamedTemporaryFile
 from pathlib import Path
 from PIL import Image
 import numpy as np
+
 def log_computational_graph(var, params, format='png'):
     # log computational graph as an image.
     dot = make_dot(var, params=params, show_attrs=True)#, show_saved=True)

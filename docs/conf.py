@@ -28,8 +28,8 @@ autodoc_default_options = {
 #    'members': 'var1, var2',
     'member-order': 'bysource',
 #    'special-members': '__init__',
-#    'undoc-members': True,
-#    'exclude-members': '__weakref__'
+    'undoc-members': False,    
+    'exclude-members': 'training',#__weakref__'
 }
 
 # Don't show class signature with the class' name.
@@ -43,7 +43,15 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'sizzle'
+#html_theme = 'sizzle'
+#html_theme = 'sphinx_rtd_theme'
+
+#extensions.append("sphinxjp.themes.basicstrap")
+#html_theme = 'basicstrap'
+#html_theme = 'groundwork'
+html_theme = 'renku'
+#html_theme = 'python_docs_theme'
+
 html_static_path = ['_static']
 
 
