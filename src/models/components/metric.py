@@ -20,7 +20,7 @@ __all__ = [
 #@torch.jit.script
 def binarize(m : torch.Tensor):
     r"""
-    Binarizes each matrix in a batch.
+    Binarizes each matrix in a batch into the one-to-one format (if N=M). If N>M, N-M vertices will have no partner and vice versa.
         
     Shape:
         - m:  :math:`(B, N, M)`
@@ -124,7 +124,7 @@ def _count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tens
 
 def count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor)->torch.Tensor:
     r"""
-    Count the number of blocking pairs for each matrix in batch m.
+    Counts the number of blocking pairs for each matrix in batch m.
         
     Shape:
         - m:  :math:`(B, N, M)`
@@ -136,7 +136,7 @@ def count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Ten
         sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  
         sba: a satisfaction at matching of agents in side :math:`b` to side :math:`a`.  
     Returns:
-        A binary bool vector.
+        A count vector.
     """
     sba = sba_t.transpose(-1,-2)
     return torch.tensor([_count_blocking_pairs(_m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)], dtype=torch.float32, device=m.device)
@@ -144,6 +144,21 @@ def count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Ten
 
 def sexequality_cost(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor, 
                      pformat : PreferenceFormat = PreferenceFormat.cost) -> torch.Tensor :
+    r"""
+    Calculates sexequality costs.
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - cab: :math:`(B, N, M)`
+        - cab: :math:`(B, M, N)`
+        - output: :math:`(B)`
+    Args:
+        m: a binary (or continously-relaxed) assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        cab: a cost at matching of agents in side :math:`a` to side :math:`b`.  
+        cba: a cost at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        A cost vector.
+    """
     if pformat != PreferenceFormat.cost:
         cab = to_cost(mat=cab, pformat=pformat, dim=-1)
         cba = to_cost(mat=cba, pformat=pformat, dim=-2)
@@ -152,6 +167,21 @@ def sexequality_cost(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor,
 
 def egalitarian_score(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor, 
                      pformat: PreferenceFormat = PreferenceFormat.cost) -> torch.Tensor:
+    r"""
+    Calculates egalitarian score.
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - cab: :math:`(B, N, M)`
+        - cab: :math:`(B, M, N)`
+        - output: :math:`(B)`
+    Args:
+        m: a binary (or continously-relaxed) assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        cab: a cost at matching of agents in side :math:`a` to side :math:`b`.  
+        cba: a cost at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        A score vector.
+    """
     if pformat != PreferenceFormat.cost:
         cab = to_cost(cab, pformat, dim=-1)
         cba_t = to_cost(cba_t, pformat, dim=-2)
@@ -161,6 +191,21 @@ def egalitarian_score(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor
 #@torch.jit.script
 def balance_score(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor, 
                      pformat: PreferenceFormat = PreferenceFormat.cost) -> torch.Tensor:
+    r"""
+    Calculates egalitarian score.
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - cab: :math:`(B, N, M)`
+        - cab: :math:`(B, M, N)`
+        - output: :math:`(B)`
+    Args:
+        m: a binary (or continously-relaxed) assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        cab: a cost at matching of agents in side :math:`a` to side :math:`b`.  
+        cba: a cost at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        A score vector.
+    """
     if pformat != PreferenceFormat.cost:
         cab = to_cost(cab, pformat, dim=-1)
         cba_t = to_cost(cba_t, pformat, dim=-2)
@@ -169,6 +214,21 @@ def balance_score(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor,
 
 def calc_all_fairness_metrics(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor, 
                      pformat: PreferenceFormat = PreferenceFormat.cost) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    r"""
+    Calculates the three fairness scores (sex-equality, egalitarian score, and balance score).
+    
+    Shape:
+        - m:  :math:`(B, N, M)`
+        - cab: :math:`(B, N, M)`
+        - cab: :math:`(B, M, N)`
+        - output: :math:`(B)`
+    Args:
+        m: a binary (or continously-relaxed) assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
+        cab: a cost at matching of agents in side :math:`a` to side :math:`b`.  
+        cba: a cost at matching of agents in side :math:`b` to side :math:`a`.  
+    Returns:
+        The three score vectors.
+    """
     if pformat != PreferenceFormat.cost:
         cab = to_cost(cab, pformat, dim=-1)
         cba_t = to_cost(cba_t, pformat, dim=-2)

@@ -19,7 +19,7 @@ import sys, os
 
 sys.path.append(os.path.abspath('../src'))
 
-extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon','sphinx_multiversion','autodocsumm','sphinx.ext.linkcode',]
+extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon','sphinx_multiversion','autodocsumm','sphinx.ext.linkcode','enum_tools.autoenum']
 
 # Automatically extract typehints when specified and place them in
 # descriptions of the relevant function/method.
@@ -29,7 +29,7 @@ autodoc_default_options = {
     'member-order': 'bysource',
 #    'special-members': '__init__',
     'undoc-members': False,    
-    'exclude-members': 'training',#__weakref__'
+    'exclude-members': 'training',#__weakref__'    
 }
 
 # Don't show class signature with the class' name.
@@ -91,6 +91,7 @@ def linkcode_resolve(domain, info):
         return None
     '''
     filepath = os.path.relpath(inspect.getsourcefile(obj), './')
+    print(filepath)
     try:
         source, lineno = inspect.getsourcelines(obj)
     except OSError:

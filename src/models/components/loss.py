@@ -152,7 +152,7 @@ def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -
         
     Args:
         m: a continously-relaxed assignment between sides :math:`a` and :math:`b`, where |a|=N, |b|=M.       
-        sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`.  See :class:`PreferenceFormat <model.components.preference.PreferenceFormat>`.
+        sab: a satisfaction at matching of agents in side :math:`a` to side :math:`b`. 
         sba_t: a satisfaction at matching of agents in side :math:`b` to side :math:`a` (transposed to be the same shape with **sab**).  
     Returns:
         The calculated `expected ex post stability violation` of :math:`\mathcal{L}_{\rm stability}(m, s^{ab}, s^{ba})`.
