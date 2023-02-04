@@ -15,17 +15,24 @@ def batch_sum(matching : torch.Tensor, mat : torch.Tensor, batch_size : int)->to
     r"""summate elements of **mat** filtered by **matching** for each sample in a batch.
     
     Shape:
-        - matching: (B,\ldots)
-        - mat: (B, \ldots)
-        - output: (B,)
+        - matching: (B, \ldots, N, M)
+        - mat: (B, N, M)
+        - output: (B, \ldots)
     Args:
         matching: (continuous) matching results
         mat: summation targets
     Return:
-        :math:`\sum_{ij} (\text{matching}*\text{mat})` for each sample in a batch   
+        :math:`\sum_{ij} (\text{matching}*\text{mat})` for each sample and channel in a batch   
     
-    """
-    return (mat * matching).view(batch_size, -1).sum(dim=-1)
+    """    
+    dim_diff = matching.dim() - mat.dim()
+    if dim_diff > 0:
+        shape_mat = list(mat.shape)
+        shape_mat = shape_mat[:1] + [1] * dim_diff + shape_mat[1:]
+        mat = mat.view(shape_mat)
+    assert(matching.dim()==mat.dim())
+    
+    return (mat * matching).view(matching.shape[:-2] + (-1,)).sum(dim=-1)
 
     
 def sat2rank(sat : torch.Tensor, dim = -1)->torch.Tensor:

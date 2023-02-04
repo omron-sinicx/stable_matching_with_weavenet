@@ -6,15 +6,15 @@
 
 Sparse Models
 ==================================================
-.. automodule:: models.components.sparse.weavenet  
+.. automodule:: models.components.sparse.model
    :members: TrainableMatchingModuleSp, WeaveNetHeadSp
    
 Experimental
 --------
-.. automodule:: models.components.sparse.weavenet
+.. automodule:: models.components.sparse.model
    :members: ExperimentalHeadSp, ExperimentalUnitListGeneratorSp
    
 Private Models
 --------
-.. automodule:: models.components.sparse.weavenet
+.. automodule:: models.components.sparse.model
    :members: UnitSp,  WeaveNetUnitListGeneratorSp, MatchingModuleHeadSp

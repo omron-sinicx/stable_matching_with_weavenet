@@ -8,15 +8,15 @@ Layers
 ==================================================
 
 .. automodule:: models.components.layers   
-   :members: SetEncoderPointNet, CrossConcat, CrossConcatVertexFeatures, MaxPoolingAggregator, ConcatMerger, DualSoftmax, DualSoftmaxSqrt, BatchNormXXC
+   :members: SetEncoderPointNet, CrossConcat, CrossConcatVertexFeatures, MaxPoolingAggregator, DualSoftmax, DualSoftmaxSqrt, BatchNormXXC
    
 Experimental
 ------------------------
 .. automodule:: models.components.layers   
-   :members: SetEncoderPointNetCrossDirectional, SetEncoderPointNetTotalDirectional, CrossDifferenceConcat, DifferenceConcatMerger, DualSoftmaxFuzzyLogicAnd
+   :members: SetEncoderPointNetCrossDirectional, SetEncoderPointNetTotalDirectional, CrossDifferenceConcat, DualSoftmaxFuzzyLogicAnd
 
 Private Layers
 ------------------------
 .. automodule:: models.components.layers   
-   :members: Interactor, RepeatFormatter, SetEncoderBase,  ConcatMergerAny
+   :members: Interactor, SetEncoderBase
    

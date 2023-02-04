@@ -80,8 +80,8 @@ def loss_one2one_correlation(mab : torch.Tensor, mba_t:Optional[torch.Tensor]=No
     N,M = mab.shape[-2:]
     Z = (N+M)/(2*N*M)
     
-    batch_size = mab.size(0)
-    dM = ((mab)/mc_norm * (mba_t)/mr_norm).view(batch_size, -1).sum(dim=-1)*(Z)
+    orig_shape = mab.shape[:-2]
+    dM = ((mab)/mc_norm * (mba_t)/mr_norm).view(orig_shape + (-1,)).sum(dim=-1)*(Z)
     return 1.0 - dM
 
 def loss_one2one_correlation_exp(mab : torch.Tensor, mba_t:Optional[torch.Tensor]=None) -> torch.Tensor:
@@ -105,34 +105,38 @@ def loss_one2one_correlation_exp(mab : torch.Tensor, mba_t:Optional[torch.Tensor
     mba_t_exp = torch.clamp(mba_t, epsilon).exp() # add epsilon to m for numerical stability.
     return loss_one2one_correlation(mab_exp, mba_t_exp)
 
+def __ls(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, c:int, epsilon:float=10**-7) -> torch.Tensor:
+    N = m.size(0)
+    sab_selected = sab[:,c:c+1] # to keep dimension, sab[:,c] is implemented as sab[:,c:c+1]
+    #sab_selected = torch.repeat_interleave(sab_selected,M,dim=1)
+    sab_selected = sab_selected.expand(sab.shape)
+    # c           i=0         i=1         i=2
+    # 0 tensor([1.0000e-07, 1.0000e-07, 1.0000e-07])
+    unsab = (m*torch.clamp(sab_selected-sab,epsilon)).sum(dim=1)
+
+    sba_selected = sba[c:c+1,:] # keep dimension.
+    #sba_selected = torch.repeat_interleave(sba_selected,N,dim=0)
+    sba_selected = sba_selected.expand(sba.shape)
+    _sba = sba_selected.t()
+
+    _m = m.new_zeros(N,N)
+    _m += m[:,c:c+1]
+
+
+    # c           i=0         i=1         i=2
+    # 0 tensor([1.0000e-07, 1.0000e-07, 1.0000e-07])
+    unsba = (_m*torch.clamp(sba_selected-_sba,epsilon)).sum(dim=0)
+    # Admarl unsab*unsba unsab[0]*unsba[0], unsab[1]*unsba[1],unsab[2]*unsba[2],
+    return (unsab*unsba).sum()    
+
 def _loss_stability(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, epsilon:float=10**-7) -> torch.Tensor:
-    uns=m.new_zeros(1)
     if not (sab.shape[0]==sba.shape[1] and sab.shape[0]==m.shape[0]):
         print(sab.shape, sba.shape, m.shape)
     assert sab.shape[0]==sba.shape[1] and sab.shape[0]==m.shape[0]
-    N = m.shape[0]
     M = m.shape[1]
-    for c in range(M):
-        sab_selected = sab[:,c:c+1] # to keep dimension, sab[:,c] is implemented as sab[:,c:c+1]
-        sab_selected = torch.repeat_interleave(sab_selected,M,dim=1)
-        # c           i=0         i=1         i=2
-        # 0 tensor([1.0000e-07, 1.0000e-07, 1.0000e-07])
-        unsab = (m*torch.clamp(sab_selected-sab,epsilon)).sum(dim=1)
+    futs = [torch.jit.fork(__ls,m, sab, sba, c) for c in range(M)]
+    return torch.stack([torch.jit.wait(fut) for fut in futs]).sum()
 
-        sba_selected = sba[c:c+1,:] # keep dimension.
-        sba_selected = torch.repeat_interleave(sba_selected,N,dim=0)
-        _sba = sba_selected.t()
-
-        _m = m.new_zeros(N,N)
-        _m += m[:,c:c+1]
-
-
-        # c           i=0         i=1         i=2
-        # 0 tensor([1.0000e-07, 1.0000e-07, 1.0000e-07])
-        unsba = (_m*torch.clamp(sba_selected-_sba,epsilon)).sum(dim=0)
-        # Admarl unsab*unsba unsab[0]*unsba[0], unsab[1]*unsba[1],unsab[2]*unsba[2],
-        uns += (unsab*unsba).sum()
-    return uns
 
 def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r"""Evaluates loss to minimize violation of stability constraints of stable marriage problem, originally proposed in 
@@ -159,7 +163,12 @@ def loss_stability(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -
         
     """
     sba = sba_t.transpose(-1,-2)
-    return torch.stack([_loss_stability(_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]).squeeze(-1)
+    shape_orig = m.shape[:-2]
+    N, M = m.shape[-2:]
+    m = m.view(-1, N, M)
+    futs = [torch.jit.fork(_loss_stability,_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]
+    return torch.stack([torch.jit.wait(fut) for fut in futs]).view(shape_orig)
+    #return torch.stack([_loss_stability(_m,_sab,_sba) for _m, _sab, _sba in zip(m, sab, sba)]).view(shape_orig)
     
 def loss_sexequality(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
     r""" Evaluates loss to minimize `sex-equality cost <https://core.ac.uk/download/pdf/160454594.pdf>`_.

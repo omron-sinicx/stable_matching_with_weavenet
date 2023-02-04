@@ -68,9 +68,11 @@ class WeaveNetLitModule(LightningModule):
         
         # loss functions        
         self.criterion = torch.jit.script(criteria.generate_criterion())
+        #self.criterion = criteria.generate_criterion()
         
         # metric objects for calculating and averaging accuracy across batches
         self.metric =  torch.jit.script(criteria.metric)
+        #self.metric =  criteria.metric
         
         self.fairness = criteria.fairness
         for mode in ['train', 'val', 'test']:
@@ -112,18 +114,13 @@ class WeaveNetLitModule(LightningModule):
         # sba: (batch_size, M, N)
         
         sba_t = sba.transpose(-1,-2).contiguous() # (batch_size, N, M)
-        m, mab, mba_t = self.forward(sab.unsqueeze(-1), sba_t.unsqueeze(-1))  # sab.shape == sba_t.shape == (batch_size, N, M, 1)
+        m, _, _ = self.forward(sab.unsqueeze(-1), sba_t.unsqueeze(-1))  # sab.shape == sba_t.shape == (batch_size, N, M, 1)
         # m: (batch_size, N, M, 1)        
-        m = m.squeeze(-1)
-        mab = mab.squeeze(-1)
-        mba_t = mba_t.squeeze(-1)
         
-        # m: (batch_size, N, M)      
-        loss, log = self.criterion(m, mab, mba_t, sab, sba_t)
+        loss, log, m_selected = self.criterion(m, sab, sba_t)
         loss = loss.mean()
-        metric, _ = self.metric(m, sab, sba_t)
-
-        return m, loss, log, metric
+        metric, _ = self.metric(m_selected, sab, sba_t)
+        return m_selected, loss, log, metric
     
     def set_log(self, log, metric, mode):
         for k,v in log.items():

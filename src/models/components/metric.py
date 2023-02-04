@@ -52,26 +52,26 @@ def is_one2one(m : torch.Tensor):
     """
     return ~((torch.sum(m,dim=-2)>1).any(dim=-1) + (torch.sum(m,dim=-1)>1).any(dim=-1))
 
-def _is_stable(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> bool:
-    N = sab.shape[0]
+def __iss(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, c:int) -> torch.Tensor:
+    sab_selected = sab[:,c:c+1].expand(sab.shape) # to keep dimension, sab[:,c] is implemented as sab[:,c:c+1]
+    #sab_selected = sab_selected.repeat_interleave(M,dim=1)
+
+    unsab = (m*torch.clamp(sab_selected-sab,min=0)).mean(dim=1)
+
+    sba_selected = sba[c:c+1,:].expand(sba.shape) # keep dimension.
+    #sba_selected = sba_selected.repeat_interleave(N,dim=0)
+    _sba = sba_selected.t()
+    _m = m[:,c:c+1].expand(m.shape)
+    #_m = _m.repeat_interleave(N,dim=1)
+    unsba = (_m*torch.clamp(sba_selected-_sba,min=0)).mean(dim=0)
+    envy = (unsab*unsba).sum()
+    return envy<=0
+    
+def _is_stable(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor) -> torch.Tensor:
     M = sba.shape[0]
+    futs = [torch.jit.fork(__iss, m, sab, sba, c) for c in range(M)]
+    return torch.stack([torch.jit.wait(fut) for fut in futs]).all()
 
-
-    for c in range(M):
-        sab_selected = sab[:,c:c+1] # to keep dimension, sab[:,c] is implemented as sab[:,c:c+1]
-        sab_selected = sab_selected.repeat_interleave(M,dim=1)
-        unsab = (m*torch.clamp(sab_selected-sab,min=0)).mean(dim=1)
-
-        sba_selected = sba[c:c+1,:] # keep dimension.
-        sba_selected = sba_selected.repeat_interleave(N,dim=0)
-        _sba = sba_selected.t()
-        _m = m[:,c:c+1]
-        _m = _m.repeat_interleave(N,dim=1)
-        unsba = (_m*torch.clamp(sba_selected-_sba,min=0)).mean(dim=0)
-        envy = (unsab*unsba).sum()
-        if envy>0:
-            return False
-    return True
 
 #@torch.jit.script
 def is_stable(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> torch.Tensor:
@@ -91,36 +91,27 @@ def is_stable(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor) -> tor
         A binary bool vector.
     """
     sba = sba_t.transpose(-1,-2)
-    return torch.tensor([_is_stable(_m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)], dtype=torch.bool, device=m.device)
+    futs = [torch.jit.fork(_is_stable,_m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)]
+    return torch.stack([torch.jit.wait(fut) for fut in futs])
+    #return torch.tensor([_is_stable(_m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)], dtype=torch.bool, device=m.device)
 
-def _count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor):
+def __cbp(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor, c:int)->torch.Tensor:
+    sab_selected = sab[:,c:c+1].expand(sab.shape)
+    unsab_target = (m*(sab_selected-sab)>0).sum(dim=1) 
+    sba_selected = sba[c:c+1,:].expand(sba.shape) 
+    _sba = sba_selected.t()
+    _m = m[:,c:c+1].expand(m.shape)
+    unsba_target = (_m*(sba_selected-_sba)>0).sum(dim=0) 
+    n = (unsab_target * unsba_target).sum()
+    return n
 
-    N = sab.shape[0]
+def _count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba : torch.Tensor)->torch.Tensor:
     M = sba.shape[0]
 
     n_blocking_pair = 0
+    futs = [torch.jit.fork(__cbp, m, sab, sba, c) for c in range(M)]
+    return torch.stack([torch.jit.wait(fut) for fut in futs]).sum()
 
-    for c in range(M):
-        sab_selected = sab[:,c:c+1] # to keep dimension, sab[:,c] is implemented as sab[:,c:c+1]
-        sab_selected = sab_selected.repeat_interleave(M,dim=1)
-        #unsab = (m*torch.clamp(sab_selected-sab,min=0)).mean(dim=1)
-
-        unsab_target = (m*(sab_selected-sab)>0).sum(dim=1) # the summuated value must be 0 or 1 due to multiplied m.
-        #print("unsab_target: ", (m*(sab_selected-sab)>0))
-        sba_selected = sba[c:c+1,:] # keep dimension.
-        sba_selected = sba_selected.repeat_interleave(N,dim=0)
-        _sba = sba_selected.t()
-        _m = m[:,c:c+1]
-        _m = _m.repeat_interleave(N,dim=1)
-        #unsba = (_m*torch.clamp(sba_selected-_sba,min=0)).mean(dim=0)
-        unsba_target = (_m*(sba_selected-_sba)>0).sum(dim=0) # 0 or 1 as unsab_target
-        #print("unsba_target: ", (_m*(sba_selected-_sba)>0))
-        n = (unsab_target * unsba_target).sum()
-        #print("number of found blocking_pair: ",n)
-        n_blocking_pair += n
-        #envy = (unsab*unsba).sum()
-        #print("envy: ",envy)
-    return float(n_blocking_pair)
 
 def count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Tensor)->torch.Tensor:
     r"""
@@ -139,7 +130,9 @@ def count_blocking_pairs(m : torch.Tensor, sab : torch.Tensor, sba_t : torch.Ten
         A count vector.
     """
     sba = sba_t.transpose(-1,-2)
-    return torch.tensor([_count_blocking_pairs(_m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)], dtype=torch.float32, device=m.device)
+    futs = [torch.jit.fork(_count_blocking_pairs, _m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)]
+    return torch.stack([torch.jit.wait(fut) for fut in futs]).sum()
+    #return torch.tensor([_count_blocking_pairs(_m,_sab,_sba) for _m,_sab,_sba in zip(m, sab, sba)], dtype=torch.float32, device=m.device)
 
 
 def sexequality_cost(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor, 
@@ -210,7 +203,7 @@ def balance_score(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor,
         cab = to_cost(cab, pformat, dim=-1)
         cba_t = to_cost(cba_t, pformat, dim=-2)
     batch_size = m.size(0)
-    return torch.stack([batch_sum(m, cab, batch_size), batch_sum(m, cba_t, batch_size)]).max(dim=0)[0]
+    return batch_sum(m, cab, batch_size).max(batch_sum(m, cba_t, batch_size))
 
 def calc_all_fairness_metrics(m : torch.Tensor, cab : torch.Tensor, cba_t : torch.Tensor, 
                      pformat: PreferenceFormat = PreferenceFormat.cost) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

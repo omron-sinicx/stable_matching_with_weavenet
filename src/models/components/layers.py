@@ -21,10 +21,6 @@ __all__ = [
     'DualSoftmaxSqrt',
     'DualSoftmaxFuzzyLogicAnd',
     'BatchNormXXC',
-    'RepeatFormatter',    
-    'ConcatMerger',
-    'DifferenceConcatMerger',
-    'ConcatMergerAny',
 ]
 
 class BatchNormXXC(nn.Module):
@@ -199,47 +195,11 @@ class CrossDifferenceConcat(Interactor):
         return (zab, zba_t)
     
 
-class RepeatFormatter(nn.Module):
-    r"""
-    Reformat a feature to a specific shape by (virtually) repeat the value in `dim_target` dimension.
-    """
-        
-    def forward(self, 
-                x_vertex:torch.Tensor,
-                x_edge_shape:List[int],
-                dim_target:int)->torch.Tensor:            
-        r"""
-
-        Shape:
-           - x_vertex: :math:`(\ldots, 1, \ldots)`
-           - x_edge_shape: :math:`[\ldots, M, \ldots]` where :math:`M` is the number of elements at `dim_target`
-           - dim_target: the repeating target dimension, where the size of **x_vertex** is 1 and **x_edge_shape** is :math:`M`.
-           - output: :math:`(\ldots, M, \ldots)`
-           
-        Args:
-           x_vertex: a tensor of vertex-wise features
-           x_edge_shape: a shape of edge-wise feature tensor
-
-        Returns:
-           x_reshaped
-        """
-        ndim = len(x_edge_shape)
-        if ndim - x_vertex.dim()==1:
-            x_vertex = x_vertex.unsqueeze(dim_target)
-        else:
-            assert(ndim == x_vertex.dim())
-            #assert(x_vertex.shape[dim_target]==1)
-
-        tar_shape = list(x_vertex.shape)
-        tar_shape[dim_target] = x_edge_shape[dim_target]
-        return x_vertex.expand(tar_shape)
-
 class MaxPoolingAggregator(nn.Module):
     r""" Aggregates edge features for each vertex, and virtually reshape it to have the same size (other chann :math:`C`) for merger.
     """
     def __init__(self):
         super().__init__()
-        self.formatter = RepeatFormatter()
         
     def forward(self, x:torch.Tensor, dim_target:int)->torch.Tensor:
         r"""
@@ -255,98 +215,7 @@ class MaxPoolingAggregator(nn.Module):
            **x_aggregated**
 
         """        
-        return self.formatter(x.max(dim=dim_target, keepdim=True)[0], x.shape, dim_target)
-
-
-        
-class ConcatMerger(nn.Module):   
-    r""" Merges edge features and (reformatted) vertex feartures by simple concatenation.
-    """
-    def __init__(self, dim_feature:int=-1):
-        super().__init__()
-        self.dim_feature = dim_feature
-        
-    def forward(self,
-               x_edge:torch.Tensor, x_vertex:torch.Tensor)->torch.Tensor:
-        r"""
-        Applies concatenation to edge feature and vertex feature
-
-        .. math::
-            \text{Concat}(x_{edge}, x_{vertex}) = \text{cat}([x_{edge}, x_{vertex}]),
-        Shape:
-           - x_edge: :math:`(\ldots, N, M, C_{edge})`
-           - x_vertex: :math:`(\ldots, N, M, C_{vertex})`
-           - output:  :math:`(\ldots, N, M, C_{edge}+C_{vertex})`　 
-        Args:
-           x_edge: a batched tensor of edge-wise features
-           x_vertex: a batched tensor of vertex-wise features
-
-        Returns:
-           **x_merged**
-        """
-        return torch.cat([x_edge, x_vertex], dim=self.dim_feature)
-    
-class DifferenceConcatMerger(ConcatMerger):    
-    r""" A variant of :class:`ConcatMerger` that merges :math:`(x_{vertex} - x_{edge})` instead of :math:`(x_{vertex})`.
-    """
-    def forward(self,
-               x_edge:torch.Tensor, x_vertex:torch.Tensor)->torch.Tensor:
-        r"""
-        Applies concatenation to edge feature and the difference between vertex feature and edge feature. This implementation is inspired from `Difference Residual Graph Neural Networks@ACMMM2022 <https://yangliang.github.io/pdf/mm22.pdf>`_
-
-        .. math::
-            \text{Concat}(x_{edge}, x_{vertex}) = \text{cat}([x_{edge}, x_{vertex}-x_{edge}]),
-            
-        Shape:
-           - x_edge: :math:`(B, D_{edge}, N, M)`
-           - x_vertex: :math:`(B, D_{vertex}, N, M)`
-           - output:  :math:`(B, D_{edge}+D_{vertex}, N, M)`　 
-        Args:
-           x_edge: a batched tensor of edge-wise features
-           x_vertex: a batched tensor of vertex-wise features
-
-        Returns:
-           x_merged
-        """
-        assert(self.dim_feature==-1)
-        D_edge = x_edge.shape[self.dim_feature]
-        D_vertex = x_vertex.shape[self.dim_feature]
-        D_min = min(D_edge, D_vertex)
-        shape = x_vertex.shape
-        x_vertex = x_vertex.reshape(-1,D_vertex)
-        x_vertex[:, :D_min] -= x_edge.view(-1, D_edge)[:, :D_min]
-        x_vertex = x_vertex.view(shape)
-        return super().forward(x_edge, x_vertex)
-
-class ConcatMergerAny(nn.Module):   
-    r""" A variant of :class:`ConcatMerger` that merges an arbitrary number of tensors.
-    """
-    
-    def __init__(self, dim_feature:int=-1):
-        super().__init__()
-        self.dim_feature = dim_feature
-        
-    def forward(self,
-               xs:List[torch.Tensor])->torch.Tensor:
-        r"""
-        Applies concatenation to edge feature and vertex feature
-
-        .. math::
-            \text{Concat}(x_{edge}, x_{vertex}) = \text{cat}([x_{edge}, x_{vertex}]),
-        Shape:
-           - x_edge: :math:`(\ldots, N, M, D_{edge})`
-           - x_src_vertex: :math:`(\ldots, N, M, D_{vertex})`
-           - x_tar_vertex: :math:`(\ldots, N, M, D_{vertex})`
-           - output:  :math:`(\ldots, N, M, D_{edge}+2*D_{vertex})`　 
-        Args:
-           x_edge: a batched tensor of edge-wise features
-           x_src_vertex: a batched tensor of features for each source vertices.
-           x_tar_vertex: a batched tensor of features for each target vertices.
-
-        Returns:
-           x_merged
-        """
-        return torch.cat(xs, dim=self.dim_feature)
+        return x.max(dim=dim_target, keepdim=True)[0]
     
 class SetEncoderBase(nn.Module):
     r"""Applies abstracted set-encoding process.
@@ -365,15 +234,15 @@ class SetEncoderBase(nn.Module):
     def __init__(self, 
                  first_process: Callable[[torch.Tensor], torch.Tensor], 
                  aggregator: Callable[[torch.Tensor, int], torch.Tensor], 
-                 merger: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-                 second_process: Callable[[torch.Tensor], torch.Tensor],
+                 second_process_edge: Callable[[torch.Tensor], torch.Tensor],
+                 second_process_vertex: Callable[[torch.Tensor], torch.Tensor],
                  #return_vertex_feature:bool=False,
                 ):
         super().__init__()
         self.first_process = first_process
         self.aggregator = aggregator
-        self.merger = merger
-        self.second_process = second_process
+        self.second_process_edge = second_process_edge
+        self.second_process_vertex = second_process_vertex
         #self.return_vertex_feature = return_vertex_feature
         
     def forward(self, 
@@ -392,10 +261,18 @@ class SetEncoderBase(nn.Module):
            z_edge_features
 
         """        
+        z_edge_fut = torch.jit.fork(self.second_process_edge,x)
+        z = self.first_process(x)
+        z_vertex = self.second_process_vertex(self.aggregator(z, dim_target))
+        return torch.jit.wait(z_edge_fut) + z_vertex
+    
+        """
         z = self.first_process(x)
         z_vertex = self.aggregator(z, dim_target)
         z = self.merger(x, z_vertex)
         return self.second_process(z)
+        """
+        
         '''
         if not self.return_vertex_feature:
             return z
@@ -412,18 +289,19 @@ class SetEncoderPointNet(SetEncoderBase):
     """ 
     def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
         first_process = nn.Linear(in_channels, mid_channels)
-        second_process = nn.Linear(in_channels + mid_channels, output_channels, bias=False)    
-            
+        second_process_edge = nn.Linear(in_channels, output_channels, bias=False)    
+        second_process_vertex = nn.Linear(mid_channels, output_channels, bias = False)
+        
         super().__init__(
             first_process, 
             MaxPoolingAggregator(),
-            ConcatMerger(dim_feature=-1),
-            second_process,
+            second_process_edge,
+            second_process_vertex,
             **kwargs,
         )
         
     
-class SetEncoderPointNetCrossDirectional(SetEncoderBase):
+class SetEncoderPointNetCrossDirectional(SetEncoderPointNet):
     r"""Applies a variation of :class:`SetEncoderPointNet`. This class max-pools in **dim_src** direction in addition to **dim_target** direction of standard SetEncoder. 
     
     .. note:
@@ -434,17 +312,7 @@ class SetEncoderPointNetCrossDirectional(SetEncoderBase):
         mid_channels: the number of output channels at the first convolution.
         output_channels: the number of output channels at the second convolution.           
     """ 
-    def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
-        first_process = nn.Linear(in_channels, mid_channels)
-        second_process = nn.Linear(in_channels + 2*mid_channels, output_channels, bias=False)    
 
-        super().__init__(
-            first_process, 
-            MaxPoolingAggregator(),
-            ConcatMergerAny(dim_feature=-1),
-            second_process,
-            **kwargs,
-        )
     def forward(self, 
                 x:torch.Tensor,
                 dim_target:int)->torch.Tensor:
@@ -458,6 +326,8 @@ class SetEncoderPointNetCrossDirectional(SetEncoderBase):
         Returns:
            **z_edge_features**
         """
+        
+        z_edge_fut = torch.jit.fork(self.second_process_edge,x)
         z = self.first_process(x)
         if dim_target==-2:
             dim_src = -3
@@ -465,16 +335,11 @@ class SetEncoderPointNetCrossDirectional(SetEncoderBase):
             dim_src = -2
         else:
             raise RuntimeError("Unexpected dim_tar: {}. It must be -3 or -2.".format(dim_target))
-        z_src_vertex_fut = xab_fut = torch.jit.fork(self.aggregator, z, dim_src)
-        z_tar_vertex = self.aggregator(z, dim_target)
-        z_src_vertex = torch.jit.wait(z_src_vertex_fut)
-        z = self.merger(x, z_src_vertex, z_tar_vertex)
-        return self.second_process(z)
-        '''
-        if not self.return_vertex_feature:
-            return z
-        return z, z_vertex
-        '''
+        
+        z_src_vertex_fut = torch.jit.fork(self.second_process_vertex, self.aggregator(z, dim_src))
+        z_tar_vertex = self.second_process_vertex(self.aggregator(z, dim_target))
+        return torch.jit.wait(z_edge_fut) + torch.jit.wait(z_src_vertex_fut) + z_tar_vertex
+
         
 class SetEncoderPointNetTotalDirectional(SetEncoderBase):
     r"""Applies a variation of :class:`SetEncoderPointNet`. This class max-pools all the edge features in addition to :class:`SetEncoderPointNetCrossDirectional`, and concatenate the summerized features to original edge feature. 
@@ -488,17 +353,7 @@ class SetEncoderPointNetTotalDirectional(SetEncoderBase):
         output_channels: the number of output channels at the second convolution.
 
     """ 
-    def __init__(self, in_channels:int, mid_channels:int, output_channels:int, **kwargs):
-        first_process = nn.Linear(in_channels, mid_channels)
-        second_process = nn.Linear(in_channels + 3*mid_channels, output_channels, bias=False)    
 
-        super().__init__(
-            first_process, 
-            MaxPoolingAggregator(),
-            ConcatMergerAny(dim_feature=-1),
-            second_process,
-            **kwargs,
-        )
     def forward(self, 
                 x:torch.Tensor,
                 dim_target:int)->torch.Tensor:
@@ -514,24 +369,22 @@ class SetEncoderPointNetTotalDirectional(SetEncoderBase):
            z_edge_features, z_vertex_features
 
         """        
+        z_edge_fut = torch.jit.fork(self.second_process_edge(x))
         z = self.first_process(x)
         if dim_target==-2:
             dim_src = -3
         elif dim_target==-3:
             dim_src = -2
         else:
-            raise RuntimeError("Unexpected dim_tar: {}.".format(dim_target))
-        z_src_vertex_fut = xab_fut = torch.jit.fork(self.aggregator, z, dim_src)
-        z_tar_vertex = self.aggregator(z, dim_target)
-        z_src_vertex = torch.jit.wait(z_src_vertex_fut)
-        z = self.merger(x, z_src_vertex, z_tar_vertex, z_src_vertex.max(z_tar_vertex))
-        return self.second_process(z)
-        '''
-        if not self.return_vertex_feature:
-            return z
-        return z, z_vertex
-        '''             
-        
+            raise RuntimeError("Unexpected dim_tar: {}. It must be -3 or -2.".format(dim_target))
+        z_vertex_src = self.aggregator(z, dim_src)
+        z_src_vertex_fut = torch.jit.fork(self.second_process_vertex, z_vertex_src)
+        z_vertex_tar = self.aggregator(z, dim_tar)
+        z_tar_vertex_fut = torch.jit.fork(self.second_process_vertex, z_vertex_tar)
+        z_vertex_all = self.aggregator(z_vertex_tar, dim_src)
+        z_all_vertex =self.second_process_vertex(z_vertex_all)
+                
+        return torch.jit.wait(z_edge_fut) + torch.jit.wait(z_src_vertex_fut) + torch.jit.wait(z_tar_vertex_fut) + z_all_vertex
         
 StreamAggregator = Callable[[torch.Tensor,Optional[torch.Tensor], bool],Tuple[torch.Tensor,torch.Tensor,torch.Tensor]]
 class DualSoftmax(nn.Module):
