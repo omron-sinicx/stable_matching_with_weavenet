@@ -1,5 +1,5 @@
 # learning-based stable matching solver
-This repository is an implementation of stable matching solver with WeaveNet. [ref](https://openreview.net/forum?id=ktHKpsbsxx).
+This repository is an implementation of stable matching solver with WeaveNet. [[ref]](https://openreview.net/forum?id=ktHKpsbsxx).
 
 ## Preparation
 - Install [weavenet package (v1.0.0)](https://github.com/omron-sinicx/weavenet/releases/tag/v1.0.0).
