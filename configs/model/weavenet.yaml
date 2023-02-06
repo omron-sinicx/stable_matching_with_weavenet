@@ -19,9 +19,9 @@ scheduler: null
 #  patience: 10
 
 net:
-  _target_: src.models.components.model.TrainableMatchingModule
+  _target_: weavenet.model.TrainableMatchingModule
   head: 
-      _target_: src.models.components.model.WeaveNetHead
+      _target_: weavenet.model.WeaveNetHead
       input_channels: 2
       output_channels_list: [32, 32, 32, 32, 32, 32]
       mid_channels_list: [64, 64, 64, 64, 64, 64]
@@ -32,10 +32,10 @@ net:
           
   output_channels: 1
   stream_aggregator:
-      _target_: src.models.components.layers.DualSoftmaxSqrt
+      _target_: weavenet.layers.DualSoftmaxSqrt
       
 criteria:
-    _target_: src.models.components.criteria.CriteriaStableMatching
+    _target_: weavenet.criteria.CriteriaStableMatching
 
     loss_one2one: correlation
     one2one_weight: 1.0 # constraint to be one-to-one matching  

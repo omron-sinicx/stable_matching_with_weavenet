@@ -21,6 +21,15 @@ sys.path.append(os.path.abspath('../src'))
 
 extensions = ['sphinx.ext.autodoc', 'sphinx.ext.napoleon','sphinx_multiversion','autodocsumm','sphinx.ext.linkcode','enum_tools.autoenum']
 
+
+# sphinx_multiversion
+# Whitelist pattern for tags (set to None to ignore all tags)
+smv_tag_whitelist = r'^v\d+\.\d+\.\d+$' # Include tags like "v2.3.4"
+smv_branch_whitelist = r'^.*$' 
+smv_remote_whitelist = None
+smv_released_pattern = r'^tags/.*$'           # Tags only
+smv_outputdir_format = '{ref.name}' 
+
 # Automatically extract typehints when specified and place them in
 # descriptions of the relevant function/method.
 autodoc_typehints = "description"

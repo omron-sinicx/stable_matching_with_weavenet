@@ -58,6 +58,14 @@ class WeaveNetLitModule(LightningModule):
         criteria: criteria.CriteriaStableMatching,
     ):
         super().__init__()
+        """
+        torch.backends.cudnn.benchmark = True
+        torch.autograd.set_detect_anomaly(False)
+        torch.autograd.profiler.profile = False
+        torch.autograd.profiler.emit_nvtx = False
+        torch.autograd.gradcheck = False
+        torch.autograd.gradgradcheck = False
+        """
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt

@@ -11,7 +11,7 @@ def _to_bcnm(m:torch.Tensor)->torch.Tensor:
     B, N, M, C = m.shape
     if C==1:
         return m.view(B, 1, N, M)
-    return m.permute(0, 3, 1, 2)
+    return m.permute(0, 3, 1, 2).contiguous()
 
 @torch.jit.ignore
 def _range_jit_ignore(val:int, device:torch.device)->torch.Tensor:
