@@ -4,7 +4,7 @@ import torch
 from pytorch_lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric, MinMetric
 
-from .components import criteria
+from weavenet import criteria
 from functools import partial
 
 
@@ -56,6 +56,7 @@ class WeaveNetLitModule(LightningModule):
         optimizer: torch.optim.Optimizer,
         scheduler: torch.optim.lr_scheduler,
         criteria: criteria.CriteriaStableMatching,
+        do_jit_scripting: bool = True,
     ):
         super().__init__()
         """
@@ -71,17 +72,20 @@ class WeaveNetLitModule(LightningModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(logger=False, ignore=["net"])
 
-        self.net = torch.jit.script(net)
+        self.net = net
         self.computational_graph_logged = False
         
         # loss functions        
-        self.criterion = torch.jit.script(criteria.generate_criterion())
-        #self.criterion = criteria.generate_criterion()
+        self.criterion = criteria.generate_criterion()
         
         # metric objects for calculating and averaging accuracy across batches
-        self.metric =  torch.jit.script(criteria.metric)
-        #self.metric =  criteria.metric
+        self.metric =  criteria.metric
         
+        if do_jit_scripting:
+            self.metric =  torch.jit.script(self.metric)
+            self.net = torch.jit.script(self.net)
+            self.criterion = torch.jit.script(self.criterion)
+                
         self.fairness = criteria.fairness
         for mode in ['train', 'val', 'test']:
             setattr(self, '{}_total_loss'.format(mode), MeanMetric())            
@@ -124,9 +128,10 @@ class WeaveNetLitModule(LightningModule):
         sba_t = sba.transpose(-1,-2).contiguous() # (batch_size, N, M)
         m, _, _ = self.forward(sab.unsqueeze(-1), sba_t.unsqueeze(-1))  # sab.shape == sba_t.shape == (batch_size, N, M, 1)
         # m: (batch_size, N, M, 1)        
-        
-        loss, log, m_selected = self.criterion(m, sab, sba_t)
+        loss, log = self.criterion(m, sab, sba_t)        
         loss = loss.mean()
+        m_selected = m.squeeze(-1)
+        
         metric, _ = self.metric(m_selected, sab, sba_t)
         return m_selected, loss, log, metric
     

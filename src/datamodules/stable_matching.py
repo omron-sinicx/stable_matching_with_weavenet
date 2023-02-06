@@ -53,7 +53,7 @@ class NpzDataset(Dataset):
         return tuple(items)
         
         
-    def load(self,filename):
+    def load(self,filename):        
         npz = np.load(filename)
         sab = npz['sab']
         N,M = sab.shape[-2:]
@@ -165,8 +165,7 @@ class UniversalSMIGenerator(Dataset):
 
         #sab = sab.reshape([na,nb])
         #sba = sba.reshape([nb,na])
-        return sab,sba,na,nb
-
+        return sab,sba,na,nb    
     
 class StableMatchingDataModule(LightningDataModule):
     """Example of LightningDataModule for MNIST dataset.
