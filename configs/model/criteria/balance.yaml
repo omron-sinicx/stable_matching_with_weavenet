@@ -1,4 +1,9 @@
 _target_: weavenet.criteria.CriteriaStableMatching
 
+loss_one2one: correlation
+one2one_weight: 1.0 # constraint to be one-to-one matching  
+stability_weight: 0.7 # constraint to be stable matching (with one2one_weight together).
+gate_fairness_loss: false
+
 fairness: balance # null | sexequality | egalitarian | balance
 fairness_weight: 0.01

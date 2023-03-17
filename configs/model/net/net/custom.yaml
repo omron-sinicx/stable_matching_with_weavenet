@@ -1,0 +1,11 @@
+  _target_: weavenet.model.MatchingModuleHead
+  calc_residual: null
+  keep_first_var_after: 0
+  exclusive_elements_of_unit: 'none' # 'none'|'normalizer'|'all' for standard|bias-remove|dual weavenet.
+  interactor: # set none to build a single stream architecture.
+      _target_: weavenet.layers.CrossConcat
+  module_units:
+      _target_: weavenet.model.WeaveNetUnitList
+      input_channels: 2
+      output_channels_list: [32, 32, 32, 32, 32, 32]
+      mid_channels_list: [64, 64, 64, 64, 64, 64]

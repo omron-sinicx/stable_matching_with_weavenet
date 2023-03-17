@@ -2,8 +2,11 @@ _target_: src.models.weavenet_module.WeaveNetLitModule
 
 defaults:
     - _self_
+    - net: weavenet_dense
+    - criteria: default
 
-  
+do_jit_scripting: true
+
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
@@ -17,30 +20,3 @@ scheduler: null
 #  mode: min
 #  factor: 0.1
 #  patience: 10
-
-net:
-  _target_: weavenet.model.TrainableMatchingModule
-  head: 
-      _target_: weavenet.model.WeaveNetHead
-      input_channels: 2
-      output_channels_list: [32, 32, 32, 32, 32, 32]
-      mid_channels_list: [64, 64, 64, 64, 64, 64]
-      calc_residual: null
-      keep_first_var_after: 0
-      exclusive_elements_of_unit: 'none' # 'none'|'normalizer'|'all' for standard|bias-remove|dual weavenet.
-      is_single_stream: false
-          
-  output_channels: 1
-  stream_aggregator:
-      _target_: weavenet.layers.DualSoftmaxSqrt
-      
-criteria:
-    _target_: weavenet.criteria.CriteriaStableMatching
-
-    loss_one2one: correlation
-    one2one_weight: 1.0 # constraint to be one-to-one matching  
-    stability_weight: 0.7 # constraint to be stable matching (with one2one_weight together).
-
-    fairness: null # null | sexequality | egalitarian | balance
-    fairness_weight: 0.001 # ignored if fairness is null.
-    gate_fairness_loss: false

@@ -71,7 +71,7 @@ class CriteriaStableMatching():
                  stability_weight: float = 0.7,
                  fairness: str = 'sexequality',
                  fairness_weight: float = 0.1,
-                 loss_one2one: str = 'correlation_exp', # correlation | correlation_exp | maximize_sum
+                 loss_one2one: str = 'correlation', # correlation | correlation_exp | maximize_sum
                  gate_fairness_loss: bool = False, # if True, consider fairness loss only when the condition was satisfied.
                 ): 
         

@@ -1,0 +1,29 @@
+_target_: weavenet.sparse.model.TrainableMatchingModuleSp
+net_dense: 
+  _target_: weavenet.model.WeaveNet
+  input_channels: 2
+  mid_channels_list: [64, 64, 64]
+  output_channels_list: [32, 32, 32]
+  calc_residual: null
+  keep_first_var_after: 0
+  exclusive_elements_of_unit: 'none' # 'none'|'normalizer'|'all' for standard|bias-remove|dual weavenet.
+  is_single_stream: false
+
+net_sparse:
+  _target_: weavenet.sparse.model.WeaveNetSp
+  input_channels: 64
+  mid_channels_list: [64, 64, 64]
+  output_channels_list: [32, 32, 32]
+  calc_residual: null
+  keep_first_var_after: 0
+  exclusive_elements_of_unit: 'none' # 'none'|'normalizer'|'all' for standard|bias-remove|dual weavenet.
+  is_single_stream: false
+
+mask_selector:
+  _target_: weavenet.sparse.layers.MaskSelectorByNorm
+  tau: 10.0
+  drop_rate: 0.3
+  
+output_channels: 1
+stream_aggregator:
+  _target_: weavenet.sparse.layers.DualSoftmaxSqrtSp
