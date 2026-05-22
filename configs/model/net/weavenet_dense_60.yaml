@@ -1,0 +1,18 @@
+# WeaveNet-60 (-64-64-s-res): 60 layers, 64 mid / 64 out channels with residual.
+# Used by the paper for Exp 2 (N=20, 30 in Tables 2, 3) and as the backbone of
+# Exp 3 incomplete-input experiments. Matches legacy:
+#   --network_type WeaveNet -L 60 -w 64 -W 64 --use_resnet (implicit in -s-res ckpt name)
+_target_: weavenet.model.TrainableMatchingModule
+net:
+  _target_: weavenet.model.WeaveNet
+  input_channels: 2
+  output_channels_list: [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+  mid_channels_list:    [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+  calc_residual: [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+  keep_first_var_after: 0
+  exclusive_elements_of_unit: 'none'
+  is_single_stream: false
+
+output_channels: 1
+stream_aggregator:
+  _target_: weavenet.layers.DualSoftmaxSqrt
