@@ -39,7 +39,7 @@ import hydra
 import pytorch_lightning as pl
 from omegaconf import DictConfig
 from pytorch_lightning import Callback, LightningDataModule, LightningModule, Trainer
-from pytorch_lightning.loggers import LightningLoggerBase
+from pytorch_lightning.loggers import Logger
 
 from src import utils
 
@@ -80,7 +80,7 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
 
     
     log.info("Instantiating loggers...")
-    logger: List[LightningLoggerBase] = utils.instantiate_loggers(cfg.get("logger"))
+    logger: List[Logger] = utils.instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
@@ -122,7 +122,7 @@ def train(cfg: DictConfig) -> Tuple[dict, dict]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.2", config_path=root / "configs", config_name="train.yaml")
+@hydra.main(version_base="1.2", config_path=str(root / "configs"), config_name="train.yaml")
 def main(cfg: DictConfig) -> Optional[float]:
 
     # train the model

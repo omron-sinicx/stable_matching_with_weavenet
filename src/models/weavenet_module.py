@@ -160,8 +160,7 @@ class WeaveNetLitModule(LightningModule):
         self.set_log(log,metric, 'train')
         return {"loss": loss}
     
-    def training_epoch_end(self, outputs: List[Any]):
-        # `outputs` is a list of dicts returned from `training_step()`
+    def on_train_epoch_end(self):
         pass
     
     def fairness_w_penalty(self, 
@@ -187,9 +186,9 @@ class WeaveNetLitModule(LightningModule):
             self.val_fairness_w_penalty(self.fairness_w_penalty(fairness, is_success, batch[0]).mean())
         return {"loss": loss}
 
-    def validation_epoch_end(self, outputs: List[Any]):
-        if not self.fairness:            
-            success_rate = self.val_is_success.compute()        
+    def on_validation_epoch_end(self):
+        if not self.fairness:
+            success_rate = self.val_is_success.compute()
             self.val_success_rate_best(success_rate)
             self.log("val/best", self.val_success_rate_best.compute(), prog_bar=True)
         else:
@@ -199,7 +198,7 @@ class WeaveNetLitModule(LightningModule):
                     self.offset = fairness_best
                 fairness_best = -fairness_best + self.offset
             self.val_fairness_best(fairness_best)
-            self.log("val/best", self.val_fairness_best.compute(), prog_bar=True)       
+            self.log("val/best", self.val_fairness_best.compute(), prog_bar=True)
 
     def test_step(self, batch: Any, batch_idx: int):
         m, loss, log, metric = self.step(batch)
@@ -211,7 +210,7 @@ class WeaveNetLitModule(LightningModule):
 
         return {"loss": loss}
 
-    def test_epoch_end(self, outputs: List[Any]):
+    def on_test_epoch_end(self):
         pass
 
     def configure_optimizers(self):
@@ -267,17 +266,15 @@ class WeaveNetLPLitModule(WeaveNetLitModule):
         
         return m_binary, loss, log, metric
 
-    def validation_epoch_end(self, outputs: List[Any]):
+    def on_validation_epoch_end(self):
         success_rate = self.val_is_success.compute()
         self.val_success_rate_best(success_rate)
         self.log("val/success_rate_best", self.val_success_rate_best.compute())
-        
+
         if self.fairness:
             fairness = getattr(self, 'val_{}'.format(self.fairness_criterion_name)).compute()
             self.val_fairness_best(fairness)
             self.log("val/fairness_best", self.val_fairness_best.compute())
-        
-        pass    
     
 if __name__ == "__main__":
     import hydra

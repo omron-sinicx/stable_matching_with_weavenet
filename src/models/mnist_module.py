@@ -80,8 +80,7 @@ class MNISTLitModule(LightningModule):
         # remember to always return loss from `training_step()` or backpropagation will fail!
         return {"loss": loss, "preds": preds, "targets": targets}
 
-    def training_epoch_end(self, outputs: List[Any]):
-        # `outputs` is a list of dicts returned from `training_step()`
+    def on_train_epoch_end(self):
         pass
 
     def validation_step(self, batch: Any, batch_idx: int):
@@ -95,7 +94,7 @@ class MNISTLitModule(LightningModule):
 
         return {"loss": loss, "preds": preds, "targets": targets}
 
-    def validation_epoch_end(self, outputs: List[Any]):
+    def on_validation_epoch_end(self):
         acc = self.val_acc.compute()  # get current val acc
         self.val_acc_best(acc)  # update best so far val acc
         # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
@@ -113,7 +112,7 @@ class MNISTLitModule(LightningModule):
 
         return {"loss": loss, "preds": preds, "targets": targets}
 
-    def test_epoch_end(self, outputs: List[Any]):
+    def on_test_epoch_end(self):
         pass
 
     def configure_optimizers(self):
