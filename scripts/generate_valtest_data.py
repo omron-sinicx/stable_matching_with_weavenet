@@ -18,8 +18,14 @@ Schema per .npz file:
 Per user direction (2026-05-22): K=2 for all sizes (GS man-/woman-optimal only),
 including size=100 where exhaustive enumeration is infeasible.
 
-Seeds are derived from sha256("{type}/{n}x{n}/{split}/{idx}") so re-runs are
-reproducible without checking in giant binaries.
+Seed modes:
+- default (sha256):  Seeds are derived per-instance from sha256("{type}/{n}x{n}/{split}/{idx}").
+  Re-runs reproduce identical data without checking in giant binaries; each
+  instance is independent of others.
+- --paper-seeds:    Match the paper's generate_dataset.py default seeds — 135789 for
+  validation, 2456 for test — seeded once per (type, size, split) call, with
+  numpy state then evolving as instances are generated. Closest practical match
+  to the paper's data, but not bit-exact (different numpy version / call order).
 """
 from __future__ import annotations
 
@@ -56,6 +62,9 @@ DISTRIBS = {
 }
 SIZES = (3, 5, 7, 9, 10, 20, 30, 100)
 SPLITS = (("validation", 200), ("test", 1000))
+
+# Paper defaults from docs/papers/legacy_code/generate_dataset.py lines 52-55.
+PAPER_SEEDS = {"validation": 135789, "test": 2456}
 
 
 def derive_seed(distrib_key: str, n: int, split: str, idx: int) -> int:
@@ -110,10 +119,21 @@ def gale_shapley(rank_a: np.ndarray, rank_b: np.ndarray) -> np.ndarray:
     return out
 
 
-def generate_instance(distrib_key: str, n: int, split: str, idx: int) -> dict:
-    seed = derive_seed(distrib_key, n, split, idx)
-    np.random.seed(seed)
-    random.seed(seed)
+def generate_instance(
+    distrib_key: str,
+    n: int,
+    split: str,
+    idx: int,
+    *,
+    paper_seeds: bool = False,
+) -> dict:
+    if not paper_seeds:
+        # sha256 mode: independent seed per instance.
+        seed = derive_seed(distrib_key, n, split, idx)
+        np.random.seed(seed)
+        random.seed(seed)
+    # paper_seeds mode: caller seeded once at start of write_split; we let the
+    # global numpy state evolve through the loop, matching the original generator.
 
     distrib_m, distrib_w = DISTRIBS[distrib_key]
     gen = UniversalSMIGenerator(
@@ -169,14 +189,33 @@ def generate_instance(distrib_key: str, n: int, split: str, idx: int) -> dict:
     }
 
 
-def write_split(out_root: Path, distrib_key: str, n: int, split: str, count: int) -> None:
+def write_split(
+    out_root: Path,
+    distrib_key: str,
+    n: int,
+    split: str,
+    count: int,
+    *,
+    paper_seeds: bool = False,
+) -> None:
     tag = f"{distrib_key}{n}x{n}"
     sub_dir = out_root / split / tag
     sub_dir.mkdir(parents=True, exist_ok=True)
     list_path = out_root / split / f"{tag}.txt"
+    if paper_seeds:
+        # Match the paper's generate_dataset.py: one np.random.seed() per
+        # (split, dist, size) script invocation, then evolve.
+        paper_seed = PAPER_SEEDS[split]
+        np.random.seed(paper_seed)
+        random.seed(paper_seed)
+        # torch is unused in our generator (we go straight to numpy), but the
+        # paper seeded both — keep parity in case of accidental torch RNG use.
+        import torch as _torch
+
+        _torch.manual_seed(paper_seed)
     lines = []
     for idx in range(count):
-        sample = generate_instance(distrib_key, n, split, idx)
+        sample = generate_instance(distrib_key, n, split, idx, paper_seeds=paper_seeds)
         npz_rel = f"{tag}/{idx:05d}.npz"
         npz_abs = out_root / split / npz_rel
         np.savez(npz_abs, **sample)
@@ -206,20 +245,42 @@ def main() -> None:
         action="store_true",
         help="Generate only 2 val + 3 test samples per pair (sanity check).",
     )
+    parser.add_argument(
+        "--paper-seeds",
+        action="store_true",
+        help=(
+            "Use the paper's default seeds (val=135789, test=2456) seeded once "
+            "per (type, size, split) and evolve numpy state through the loop. "
+            "Closest practical match to the original paper dataset; not bit-exact "
+            "due to numpy version differences."
+        ),
+    )
+    parser.add_argument(
+        "--splits",
+        nargs="+",
+        default=["validation", "test"],
+        choices=["validation", "test"],
+        help="Which splits to generate (default: both).",
+    )
     args = parser.parse_args()
 
     val_count = 2 if args.smoke else args.val
     test_count = 3 if args.smoke else args.test
+    counts = {"validation": val_count, "test": test_count}
 
     out_root: Path = args.out.resolve()
     out_root.mkdir(parents=True, exist_ok=True)
-    print(f"[generate] root={out_root}")
+    mode = "paper-seeds" if args.paper_seeds else "sha256"
+    print(f"[generate] root={out_root}  mode={mode}  splits={args.splits}")
     for dk in args.types:
         for n in args.sizes:
-            for split, cnt in (("validation", val_count), ("test", test_count)):
+            for split in args.splits:
+                cnt = counts[split]
                 tag = f"{dk}{n}x{n}"
                 print(f"  {split:<10s} {tag:<10s} n={cnt}", flush=True)
-                write_split(out_root, dk, n, split, cnt)
+                write_split(
+                    out_root, dk, n, split, cnt, paper_seeds=args.paper_seeds
+                )
     print("[generate] done.")
 
 
