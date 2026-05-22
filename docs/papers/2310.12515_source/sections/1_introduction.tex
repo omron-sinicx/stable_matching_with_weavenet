@@ -1,0 +1,32 @@
+\section{Introduction}
+From job matching to multiple object tracking (MOT),  matching problems can represent various decision-making applications.
+A matching problem is generally described on a bipartite graph, a graph that has two sets of nodes $A$ and $B$ with edges $E=A\times B$ ($N=|A|$, $M=|B|$, $N\geq M$).
+On the graph, the task is to find a matching $m$ (a set of edges that do not share any nodes) that maximally satisfies an objective.
+The most famous objective is to maximize the sum of edge weights in $m$, which can be solved by the Hungarian algorithm \cite{kuhn1955hungarian}. This problem is called {\it one-sided} because only one stakeholder dominates both sides $A$ and $B$. In contrast, {\it two-sided matching} supposes that agents on each side aim to maximize their reward.
+
+%
+%A matching $m$ is a subset of $E$ whose edges do not share any nodes (see the black edges in Fig. \ref{fig:stable_matching} for an example).
+
+A fairer two-sided matching solver provides more agreeable social decisions, but some fairness objectives make the problem {\it strongly NP-hard} \cite{kato1993complexity,mcdermid2014sex}.
+Besides, agents may randomly appear/disappear in dynamic matching problems (e.g., MOT with occlusions \cite{MOT_match}).
+In such cases, we need to compensate for the inputs of incomplete information by its stochastic properties.
+A learning-based model can be an alternative to hand-crafted algorithms for such applications.
+However, such models are underexplored.
+%and there are only a few attempts \cite{harvard2019,gibbons2019deep}, in which the models are parameter redundant and their local architecture does not encode relative difference of each matching candidates well.
+
+This paper aims to propose an effective learning-based solver for matching problems and evaluate it on {\it strongly NP-hard} conditions of {\it fair stable matching problems}.
+
+The contribution of this paper is four-fold:
+\begin{enumerate}
+%\setlength{\itemsep}{0pt}      %2. ブロック間の余白
+%\setlength{\parskip}{0pt}      %4. 段落間余白．
+%\setlength{\itemindent}{0pt}   %5. 最初のインデント
+%\setlength{\labelsep}{3pt}     %6. item と文字の間
+   \item We proposed {\it WeaveNet}, a novel neural network architecture for matching problems that largely outperforms traditional learning-based approaches.
+   \item For the first time, our learning-based solver achieved a comparative performance to the state-of-the-art handcrafted algorithm of NP-hard matching problems, though it was achieved with the limited size of problem instances ($N=20,~30$).
+   \item For the first time, we demonstrated the performance of a deep model unsupervisedly trained by a continuous relaxation of discrete conditions of matching problems.
+   %We train a deep model by continuous relaxation of conditions on matching problems and demonstrate its performance with problem instances of size $N=100$, which have never been explored.
+   \item We provided a steady baseline for the problem with source code to open a new vista for learning-based combinatorial optimization\footnote{The source code and datasets are included in this submission and will be publicly available.}.
+\end{enumerate}
+%\sone{For the first timeが2回連続ででてくるので,はじめての表現を別にするのはどうか}
+

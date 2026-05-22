@@ -1,0 +1,78 @@
+\usepackage{comment}
+\usepackage{subfigure}
+\usepackage{amsmath}
+\usepackage{bm} % added by Harashima (2020/01/15)
+\usepackage{ascmac} % added by Harashima (2020/02/16)
+\usepackage{multirow} % added by Harashima (2020/03/09
+
+\usepackage{booktabs}
+\usepackage{bbding}
+\usepackage{pifont}
+\usepackage{wasysym}
+\usepackage{amssymb}
+
+\newcommand{\mytitle}{WeaveNet for Approximating Two-sided Matching Problems}
+
+
+\makeatletter
+\def\WordCount#1{%
+\@tempcnta\z@%
+\@tfor \@tempa:=#1\do{\advance\@tempcnta\@ne}%
+\@tempcnta%
+}%
+\makeatother
+
+\newif\ifprintjp
+
+\newcommand{\para}[2]{%
+
+\ifprintjp%
+  \ifx"#1"% #1が空なら英語を表示しておく．
+  #2
+  \else%
+  #1 
+  \fi
+\else%
+  \ifx"#2"% #2が空なら日本語を表示しておく．
+  #1
+  \else%
+  #2 
+  \fi
+\fi
+
+}
+
+
+\usepackage[dvipsnames]{xcolor}
+
+%\newcommand{\writtenby}[1]{\textcolor{red}{Written by #1 and waiting for a proofread.}}
+\newcommand{\writtenby}[1]{}
+%\newcommand{\checkedby}[2]{\textcolor{blue}{Proofread by #1 (originally written by #2).}} 
+\newcommand{\checkedby}[2]{}
+%If you critically modify something in this paragraph, please remove this \textbackslash checkedby flag.}}
+
+\newcommand{\modifiedby}[2]{\textcolor{magenta}{Modified by #1 (Originally written by #2)}}
+
+\usepackage{url}
+% 各人のコメント用コマンド．
+%\begin{comment}
+\newcommand{\ah}[1]{\textcolor{BurntOrange}{[AH: #1]}}
+\newcommand{\sone}[1]{\textcolor{RubineRed}{[SS: #1]}} %ssは既に存在しているので，曾根さんだけ\ssではなく\soneでお願いします．
+\newcommand{\jm}[1]{\textcolor{ForestGreen}{[JM: #1]}}
+%\end{comment}
+
+% コメントをそのまま採用する場合は，上をコメントアウトし，ここをコメントインする．
+\begin{comment}
+\newcommand{\ah}[1]{#1}
+\newcommand{\sone}[1]{#1}
+\newcommand{\jm}[1]{#1}
+\end{comment}
+
+
+% math
+\newcommand{\loss}{{\mathcal L}}
+\newcommand{\lowest}{C_{min}}
+\newcommand{\ull}[1][\underline]{#1}
+\newcommand{\oll}[1][\overline]{#1}
+
+\newcommand{\SEq}{S\hspace{-0.1em}Eq}

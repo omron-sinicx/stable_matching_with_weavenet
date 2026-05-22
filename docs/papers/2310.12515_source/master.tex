@@ -1,0 +1,113 @@
+%%%% ijcai20-multiauthor.tex
+\pdfoutput=1
+\typeout{IJCAI--24 Multiple authors example}
+
+% These are the instructions for authors for IJCAI-21.
+
+\documentclass[]{article}
+\pdfpagewidth=8.5in
+\pdfpageheight=11in
+% The file ijcai21.sty is NOT the same than previous years'
+\usepackage{ijcai21}
+%\lefthyphenmin=3
+%\righthyphenmin=3
+
+% Use the postscript times font!
+\usepackage{times}
+\renewcommand*\ttdefault{txtt}
+\usepackage{soul}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage[utf8]{inputenc}
+\usepackage[small]{caption}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{caption}
+\urlstyle{same}
+
+
+
+
+
+% the following package is optional:
+%\usepackage{latexsym} 
+
+% Following comment is from ijcai97-submit.tex:
+% The preparation of these files was supported by Schlumberger Palo Alto
+% Research, AT\&T Bell Laboratories, and Morgan Kaufmann Publishers.
+% Shirley Jowell, of Morgan Kaufmann Publishers, and Peter F.
+% Patel-Schneider, of AT\&T Bell Laboratories collaborated on their
+% preparation.
+
+% These instructions can be modified and used in other conferences as long
+% as credit to the authors and supporting agencies is retained, this notice
+% is not changed, and further modification or reuse is not restricted.
+% Neither Shirley Jowell nor Peter F. Patel-Schneider can be listed as
+% contacts for providing assistance without their prior permission.
+
+% To use for other conferences, change references to files and the
+% conference appropriate and use other authors, contacts, publishers, and
+% organizations.
+% Also change the deadline and address for returning papers and the length and
+% page charge instructions.
+% Put where the files are available in the appropriate places.
+
+
+\input{my_macros}
+
+%%%%%%%%%%%%%%
+% 日本語でcompileする場合はdecommentする．To compile in English, comment out this. 
+%\printjptrue
+
+%%%%%%%%%%%%%%
+
+
+\title{\mytitle}
+
+%\begin{comment}
+\author{
+Shusaku Sone$^1$\and
+Jiaxin Ma$^1$\and
+Atsushi Hashimoto$^1$\footnote{Contact Author,Corresponding Author}\and
+Naoya Chiba$^{1,2}$\And
+Yoshitaka Ushiku$^1$
+\\
+\affiliations
+$^1$OMRON SINIC X Corporation, $^2$Tohoku University\\
+\emails
+\{atsushi.hashimoto,shusaku.sone\}@sinicx.com}
+%\end{comment}
+
+\begin{comment}
+\author{
+Anonymous Authors$^1$\\%\footnote{Contact Author}\and
+\affiliations
+$^1$Anonymous Affiliations\\
+\emails
+anonymous@example.com
+}
+\end{comment}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\input{sections/0_abst}
+\end{abstract}
+
+\input{sections/1_introduction}
+\input{sections/2_relatedwork}
+\input{sections/3_network_architecture}
+\input{sections/4_experiments}
+\input{sections/6_conclusion}
+
+\newpage
+\bibliographystyle{named}% bib style
+\bibliography{my_bib}% your bib database
+
+\input{sections/Z_supplementary}
+\end{document}
+
