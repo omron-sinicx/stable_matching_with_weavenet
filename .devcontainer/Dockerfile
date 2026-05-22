@@ -6,11 +6,13 @@ ARG BASE_IMAGE=python:3.11
 FROM ${BASE_IMAGE}
 
 # 開発に必要なツールをインストール
+# graphviz: torchviz の計算グラフ可視化に必要な dot バイナリ
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     git \
     git-lfs \
+    graphviz \
     jq \
     ripgrep \
     fzf \
@@ -72,3 +74,13 @@ ARG INSTALL_TORCH_CPU=false
 RUN if [ "$INSTALL_TORCH_CPU" = "true" ]; then \
     pip install torch --index-url https://download.pytorch.org/whl/cpu; \
 fi
+
+# --- [Project] stable_matching_with_weavenet 固有の Python 依存をシステム pip に焼く ---
+# rebuild 後も即座に使える状態にするため、vscode user の HOME ではなく
+# システム site-packages にインストール（イメージレイヤに永続化）。
+# requirements.txt が Python 依存の Single Source of Truth。
+# torch は GPU の場合はベースイメージ提供、CPU の場合は上で導入済み。
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
+    pip install --no-cache-dir "git+https://github.com/omron-sinicx/weavenet" && \
+    rm /tmp/requirements.txt

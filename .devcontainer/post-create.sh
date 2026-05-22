@@ -37,20 +37,10 @@ fi
 # claude-san symlink
 sudo ln -sf "$(pwd)/claude-san" /usr/local/bin/claude-san
 
-# --- [Project] stable_matching_with_weavenet 固有の Python 環境構築 ---
-# uv で Python 3.10 の venv を作成し、requirements.txt と weavenet v1.0.1 をインストール
-cd /workspace
-if [ ! -d .venv ]; then
-  uv venv --python 3.10 .venv
-fi
-# shellcheck source=/dev/null
-. .venv/bin/activate
-uv pip install --upgrade pip setuptools wheel
-uv pip install -r requirements.txt
-# README は v1.0.0 を指定しているが、`criterion` の戻り値数が 2 に修正された v1.0.1 でないと
-# src/models/weavenet_module.py:131 の `loss, log = self.criterion(...)` が動かない
-uv pip install "git+https://github.com/omron-sinicx/weavenet@v1.0.1"
-# torchviz (weavenet_module.py が計算グラフ可視化に使用)
-uv pip install torchviz
-# graphviz CLI（torchviz が dot を呼ぶ）
-sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz && sudo apt-get clean && sudo rm -rf /var/lib/apt/lists/*
+# --- [Project] stable_matching_with_weavenet 固有のセットアップ ---
+# Python 依存 (pytorch-lightning, weavenet, torchviz, hydra, pyrootutils, ...) と
+# graphviz バイナリは Dockerfile でシステム pip/apt に焼き込み済み。
+# ここでは rebuild 毎に root 所有で再作成されてしまう ~/.config を vscode user に戻し、
+# matplotlib などが ~/.config/<pkg> 配下にキャッシュを作れるようにする。
+# (~/.config/gh は bind mount なので所有者は変えられないが、親ディレクトリ ~/.config は変えられる)
+sudo chown vscode:vscode /home/vscode/.config 2>/dev/null || true
