@@ -1,0 +1,4 @@
+val_dat: validation/GG5x5.txt
+val_data_dir: validation
+test_dat: test/GG5x5.txt
+test_data_dir: test

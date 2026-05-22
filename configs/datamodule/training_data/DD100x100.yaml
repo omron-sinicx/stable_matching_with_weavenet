@@ -1,0 +1,7 @@
+distrib_m: D
+distrib_w: D
+sigma_m: 0.4
+sigma_w: 0.4
+N_range_m: [100, 100]
+N_range_w: [100, 100]
+transform: true
