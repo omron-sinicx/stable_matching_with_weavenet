@@ -38,9 +38,15 @@ fi
 sudo ln -sf "$(pwd)/claude-san" /usr/local/bin/claude-san
 
 # --- [Project] stable_matching_with_weavenet 固有のセットアップ ---
-# Python 依存 (pytorch-lightning, weavenet, torchviz, hydra, pyrootutils, ...) と
-# graphviz バイナリは Dockerfile でシステム pip/apt に焼き込み済み。
-# ここでは rebuild 毎に root 所有で再作成されてしまう ~/.config を vscode user に戻し、
+# requirements.txt の依存と graphviz は Dockerfile でシステム pip/apt に焼き込み済み。
+# weavenet は external/weavenet に vendor していて、ここで editable install する
+# (バインドマウント先を指す egg-link が site-packages に作られるので、
+#  external/weavenet/src/weavenet/ への編集が即時反映される)。
+if [ -d /workspace/external/weavenet ]; then
+  sudo pip install --no-deps --no-cache-dir -e /workspace/external/weavenet
+fi
+
+# rebuild 毎に root 所有で再作成されてしまう ~/.config を vscode user に戻し、
 # matplotlib などが ~/.config/<pkg> 配下にキャッシュを作れるようにする。
 # (~/.config/gh は bind mount なので所有者は変えられないが、親ディレクトリ ~/.config は変えられる)
 sudo chown vscode:vscode /home/vscode/.config 2>/dev/null || true

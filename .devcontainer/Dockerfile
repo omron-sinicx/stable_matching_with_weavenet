@@ -80,15 +80,8 @@ fi
 # システム site-packages にインストール（イメージレイヤに永続化）。
 # requirements.txt が Python 依存の Single Source of Truth。
 # torch は GPU の場合はベースイメージ提供、CPU の場合は上で導入済み。
+# weavenet は external/weavenet/ に vendor 済みで post-create.sh が editable
+# install するため、ここでは含めない。
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
-    pip install --no-cache-dir "git+https://github.com/omron-sinicx/weavenet" && \
     rm /tmp/requirements.txt
-
-# Patch weavenet's CriteriaStableMatching for a device-mismatch bug that triggers
-# when fairness != null on GPU: a CPU tensor is mixed into a GPU computation.
-# Fix: thread `device=l.device` through the inline `torch.tensor([...])`.
-# This is local until upstream merges a fix.
-RUN python -c "import weavenet.criteria as c; print(c.__file__)" | xargs -I{} \
-    sed -i 's|torch\.tensor(\[not gate_fairness_loss\])|torch.tensor([not gate_fairness_loss], device=l.device)|' {} \
-    && python -c "from weavenet.criteria import CriteriaStableMatching; print('weavenet patched OK')"

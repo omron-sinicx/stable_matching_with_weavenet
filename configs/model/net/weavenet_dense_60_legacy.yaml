@@ -1,0 +1,42 @@
+# WeaveNet-60-64-64-s-res, paper-compatible build on the vendored PyPI weavenet.
+#
+# Matches the legacy MatcherWeaveNet (legacy_code/src/networks.py) on three
+# fronts where the PyPI default WeaveNet differs:
+#   1. encoder unit       — LegacyMaxPoolEncoder (Conv→MaxPool→Concat-with-x→Conv)
+#                            instead of SetEncoderPointNet (Linear→MaxPool→Linear+Linear→add)
+#   2. residual pattern   — every other even layer index, mirroring `if i%2==0`
+#                            (calc_residual=[F, F, T, F, T, ..., T, F] for L=60)
+#   3. output aggregation — LegacyMeanAggregator (raw mean of two streams)
+#                            instead of DualSoftmaxSqrt (sqrt of dual softmax)
+#
+# Param count: ~493K (matches legacy estimate ~500K).
+#
+# Hyperparameter origin: legacy run_exp2.sh
+#   `-L 60 -w 64 -W 64` → 60 layers, output_channels_list=[32]*60, mid_channels_list=[64]*60
+#   (legacy stores `D//2` = 32 per layer as encoder output and `inner_conv_out_channels` = 64
+#    as the maxpool path width)
+_target_: weavenet.model.TrainableMatchingModule
+net:
+  _target_: weavenet.legacy_compat.LegacyWeaveNet
+  input_channels: 2
+  output_channels_list: [32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
+  mid_channels_list:    [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+  calc_residual:
+    _target_: weavenet.legacy_compat.legacy_residual_pattern
+    L: 60
+  keep_first_var_after: 0
+  exclusive_elements_of_unit: 'none'
+  is_single_stream: false
+
+output_channels: 1
+# NOTE: aggregator is intentionally LEFT AS PyPI's default DualSoftmaxSqrt for
+# now. The legacy network output (raw logits, mean of two streams) is
+# incompatible with PyPI's criterion which assumes probability-like inputs.
+# Using LegacyMeanAggregator here would require also porting the legacy
+# criterion (col- and row-softmax inside the loss). That is tracked as a
+# follow-up. For the encoder+residual+device-bug-fix hypothesis we test now,
+# DualSoftmaxSqrt is sufficient and keeps the loss scale sane.
+stream_aggregator:
+  _target_: weavenet.layers.DualSoftmaxSqrt
+  dim_src: -3
+  dim_tar: -2
