@@ -29,14 +29,9 @@ net:
   is_single_stream: false
 
 output_channels: 1
-# NOTE: aggregator is intentionally LEFT AS PyPI's default DualSoftmaxSqrt for
-# now. The legacy network output (raw logits, mean of two streams) is
-# incompatible with PyPI's criterion which assumes probability-like inputs.
-# Using LegacyMeanAggregator here would require also porting the legacy
-# criterion (col- and row-softmax inside the loss). That is tracked as a
-# follow-up. For the encoder+residual+device-bug-fix hypothesis we test now,
-# DualSoftmaxSqrt is sufficient and keeps the loss scale sane.
+# LegacyMeanAggregator yields raw logits (mean of two streams) — matches the
+# paper's MatcherWeaveNet output. MUST be paired with model/criteria=legacy_sexequal
+# (or another LegacyCriteriaStableMatching variant) which expects raw logits
+# and applies col-/row-softmax internally inside the loss.
 stream_aggregator:
-  _target_: weavenet.layers.DualSoftmaxSqrt
-  dim_src: -3
-  dim_tar: -2
+  _target_: weavenet.legacy_compat.LegacyMeanAggregator

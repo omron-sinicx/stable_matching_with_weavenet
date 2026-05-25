@@ -1,0 +1,18 @@
+# Paper-spec criterion port of the legacy BaseSMModel.criterion to PyPI weavenet.
+#
+# Hyperparameter naming follows legacy run_exp2.sh:
+#   `-m 1.0 -u 0.7 -s 0.0 -f 0.01 -b 0.0 -cp 2.0`
+# which maps to legacy checkpoint dir `lr0.0001-m1.0-u0.7-s0.0-f0.01-b0.0-cp2.0`.
+#
+# Use ONLY together with model/net=weavenet_dense_60_legacy that uses
+# LegacyMeanAggregator — this criterion expects raw logits as input and
+# softmaxes them internally (mc/mr branches).
+_target_: weavenet.legacy_compat.LegacyCriteriaStableMatching
+
+lambda_m: 1.0       # matrix constraint (doubly-stochastic encouragement)
+lambda_u: 0.7       # unstability (blocking-pair-like loss)
+lambda_s: 0.0       # satisfaction (sum) — off in paper exp2
+lambda_f: 0.01      # sex-equality fairness — paper's `-lf 0.01`
+lambda_b: 0.0       # balance — off in paper exp2 (sex-equality run)
+constraint_p: 2.0   # p-norm in matrix-constraint loss
+fairness: sexequality

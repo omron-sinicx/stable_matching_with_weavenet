@@ -28,9 +28,10 @@ batch-concatenated forward) are functionally equivalent and behave the
 same on dense matching problems.
 """
 
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 from .layers import BatchNormXXC, CrossConcat, Interactor
@@ -143,6 +144,269 @@ class LegacyMeanAggregator(nn.Module):
             return xab, xab, xab
         m = (xab + xba_t) / 2
         return m, xab, xba_t
+
+
+def _legacy_matrix_constraint_normed_correlation(
+    m: torch.Tensor, p: float = 2.0, epsilon: float = 1e-7
+) -> torch.Tensor:
+    r"""Port of ``BaseSMModel.criterion_matrix_constraint_normed_correlation``.
+
+    Encourages ``m`` to assign mass non-trivially along both rows and columns
+    (a soft doubly-stochastic constraint).
+
+    .. math::
+        d_M = 1 - Z \sum_{ij}
+              \frac{e^{m_{ij}}}{\|e^{m_{i,:}}\|_p}
+              \cdot
+              \frac{e^{m_{ij}}}{\|e^{m_{:,j}}\|_p},
+        \quad Z = \frac{N+M}{2NM}
+
+    Vectorized over the batch dimension. Returns a scalar (mean over batch
+    happens at the caller).
+    """
+    m_exp = torch.clamp(m, min=epsilon).exp()
+    mc_norm = m_exp.norm(p=p, dim=-1, keepdim=True)
+    mr_norm = m_exp.norm(p=p, dim=-2, keepdim=True)
+    N, M = m.shape[-2:]
+    Z = (N + M) / (2 * N * M)
+    # (m_exp / mc_norm) * (m_exp / mr_norm) sums over (N, M) per batch element.
+    inner = (m_exp / mc_norm) * (m_exp / mr_norm)  # (B, N, M)
+    dM = 1.0 - inner.sum(dim=(-1, -2)) * Z  # (B,)
+    return dM
+
+
+def _legacy_unstability(
+    sab: torch.Tensor,
+    sba: torch.Tensor,
+    m: torch.Tensor,
+    epsilon: float = 1e-7,
+) -> torch.Tensor:
+    r"""Port of ``BaseSMModel.criterion_unstability_HV``, vectorized over the
+    batch and column-c loop.
+
+    Original (per batch element, per column c):
+
+    .. code-block:: python
+
+        unsab = (m * clamp(sab[:, c:c+1] - sab, eps)).sum(dim=1)        # (N,)
+        _m    = m[:, c:c+1].expand(N, N)                                # (N, N)
+        unsba = (_m * clamp(sba[c:c+1, :].expand(N, N) - sba[c:c+1, :].expand(N, N).t(), eps)).sum(dim=0)
+        uns  += (unsab * unsba).sum()
+
+    Shapes assumed here:
+        - sab: ``(B, N, M)``   side-a satisfaction
+        - sba: ``(B, M, N)``   side-b satisfaction
+        - m:   ``(B, N, M)``   soft matching (mc or mr)
+
+    Returns: ``(B,)`` per-batch unstability scalar.
+    """
+    # sab_diff[b, i, c, j] = sab[b, i, c] - sab[b, i, j]
+    sab_diff = (sab.unsqueeze(-1) - sab.unsqueeze(-2)).clamp(min=epsilon)  # (B, N, M, M)
+    # unsab[b, i, c] = sum_j m[b, i, j] * sab_diff[b, i, c, j]
+    unsab = (m.unsqueeze(-2) * sab_diff).sum(dim=-1)  # (B, N, M)
+
+    # sba_diff[b, c, i, k] = sba[b, c, i] - sba[b, c, k]
+    sba_diff = (sba.unsqueeze(-1) - sba.unsqueeze(-2)).clamp(min=epsilon)  # (B, M, N, N)
+    # m_T[b, c, k] = m[b, k, c]
+    m_T = m.transpose(-1, -2)  # (B, M, N)
+    # unsba[b, c, i] = sum_k m_T[b, c, k] * sba_diff[b, c, i, k]
+    unsba = (m_T.unsqueeze(-2) * sba_diff).sum(dim=-1)  # (B, M, N)
+
+    # uns = sum_{c, i} unsab[b, i, c] * unsba[b, c, i]
+    unsab_T = unsab.transpose(-1, -2)  # (B, M, N)
+    uns = (unsab_T * unsba).sum(dim=(-1, -2))  # (B,)
+    return uns
+
+
+def _legacy_calc_satisfaction(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor) -> torch.Tensor:
+    """Port of legacy ``utils.calc_satisfaction`` for batched tensors.
+
+    Returns: ``(B,)`` per-batch satisfaction (sum_a + sum_b) / N.
+    """
+    N = sab.shape[-2]
+    sum_a = (m * sab).sum(dim=(-1, -2))
+    sum_b = (m.transpose(-1, -2) * sba).sum(dim=(-1, -2))
+    return (sum_a + sum_b) / N
+
+
+def _legacy_calc_balance(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor) -> torch.Tensor:
+    """Port of legacy ``utils.calc_balance`` for batched tensors."""
+    N = sab.shape[-2]
+    sum_a = (m * sab).sum(dim=(-1, -2))
+    sum_b = (m.transpose(-1, -2) * sba).sum(dim=(-1, -2))
+    return torch.minimum(sum_a, sum_b) / N
+
+
+def _legacy_calc_fairness(m: torch.Tensor, sab: torch.Tensor, sba: torch.Tensor) -> torch.Tensor:
+    """Port of legacy ``utils.calc_fairness`` (sex-equality cost in satisfaction form)."""
+    N = sab.shape[-2]
+    sum_a = (m * sab).sum(dim=(-1, -2))
+    sum_b = (m.transpose(-1, -2) * sba).sum(dim=(-1, -2))
+    return (sum_a - sum_b).abs() / N
+
+
+class LegacyCriteriaStableMatching:
+    """PyPI-compatible criterion class that mirrors ``BaseSMModel.criterion``.
+
+    The legacy formulation differs from
+    :class:`weavenet.criteria.CriteriaStableMatching` in three ways:
+
+    1. The network output ``m`` is treated as **raw logits** (not as a
+       probability-like matrix from DualSoftmaxSqrt). Use this together with
+       :class:`LegacyMeanAggregator` so the network passes raw logits through.
+    2. The loss is computed separately on ``mc = softmax(m, dim=-1)`` and
+       ``mr = softmax(m, dim=-2)`` and averaged — this is what makes the
+       network learn both the row- and column-stochastic perspectives.
+    3. Five loss components controlled by ``(lambda_m, lambda_u, lambda_s,
+       lambda_b, lambda_f)`` rather than the three of the modern criterion.
+
+    Interface intentionally mimics
+    :class:`weavenet.criteria.CriteriaStableMatching` (``generate_criterion``,
+    ``base_criterion_names``, ``fairness_criterion_name``, ``metric``,
+    ``metric_names``, ``fairness``, ``larger_is_better``) so it can be used
+    by ``WeaveNetLitModule`` without lit-side changes.
+
+    Hyperparameter naming follows the legacy checkpoint dir convention from
+    ``run_exp2.sh``::
+
+        lr0.0001 - m1.0 - u0.7 - s0.0 - f0.01 - b0.0 - cp2.0
+
+    (where m/u/s/f/b are lambdas and cp is ``constraint_p``.)
+    """
+
+    def __init__(
+        self,
+        lambda_m: float = 1.0,
+        lambda_u: float = 0.7,
+        lambda_s: float = 0.0,
+        lambda_f: float = 0.0,
+        lambda_b: float = 0.0,
+        constraint_p: float = 2.0,
+        fairness: Optional[str] = "sexequality",
+    ) -> None:
+        # Paper-style lambdas:
+        # m: matrix constraint, u: unstability, s: satisfaction,
+        # f: fairness (sex-equality cost), b: balance.
+        self.lambda_m = lambda_m
+        self.lambda_u = lambda_u
+        self.lambda_s = lambda_s
+        self.lambda_f = lambda_f
+        self.lambda_b = lambda_b
+        self.constraint_p = constraint_p
+
+        # Track active fairness label for the lit-module's logging /
+        # best-tracking machinery, mirroring CriteriaStableMatching's API.
+        # The lit module reads `self.fairness` to decide which val metric
+        # selects the best checkpoint, and `larger_is_better` to set the
+        # MaxMetric direction.
+        self.fairness = fairness if (lambda_f != 0.0 or lambda_b != 0.0) else None
+        if self.fairness == "sexequality":
+            self.larger_is_better = False
+        else:  # 'egalitarian' or 'balance' — lower-cost-is-better for our metrics
+            self.larger_is_better = True
+
+    def generate_criterion(self):
+        lambda_m = self.lambda_m
+        lambda_u = self.lambda_u
+        lambda_s = self.lambda_s
+        lambda_f = self.lambda_f
+        lambda_b = self.lambda_b
+        constraint_p = self.constraint_p
+
+        def criterion(
+            m: torch.Tensor,
+            sab: torch.Tensor,
+            sba_t: torch.Tensor,
+        ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+            # m: (B, N, M, 1) raw logits from LegacyMeanAggregator
+            # sab, sba_t: (B, N, M)
+            assert m.size(-1) == 1, f"expected channel last dim = 1, got {m.shape}"
+            m = m.squeeze(-1)  # (B, N, M)
+            sba = sba_t.transpose(-1, -2)  # (B, M, N)
+
+            mc = F.softmax(m, dim=-1)  # row-stochastic perspective
+            mr = F.softmax(m, dim=-2)  # column-stochastic perspective
+
+            # 1. matrix constraint
+            if constraint_p >= 0:
+                l_mat = _legacy_matrix_constraint_normed_correlation(m, p=constraint_p)
+            else:
+                l_mat = (mc - mr).abs().mean(dim=(-1, -2))  # (B,)
+
+            # 2. unstability — average over mc and mr
+            l_uns = (
+                _legacy_unstability(sab, sba, mc)
+                + _legacy_unstability(sab, sba, mr)
+            ) / 2
+
+            # 3. satisfaction (maximize → minimize negative)
+            l_sat = -(
+                _legacy_calc_satisfaction(mc, sab, sba)
+                + _legacy_calc_satisfaction(mr, sab, sba)
+            ) / 2
+
+            # 4. balance / satisfaction-with-fairness (also a maximize)
+            l_bal = -(
+                _legacy_calc_balance(mc, sab, sba)
+                + _legacy_calc_balance(mr, sab, sba)
+            ) / 2
+
+            # 5. fairness (sex-equality cost — minimize)
+            l_fair = (
+                _legacy_calc_fairness(mc, sab, sba)
+                + _legacy_calc_fairness(mr, sab, sba)
+            ) / 2
+
+            total = (
+                lambda_m * l_mat
+                + lambda_u * l_uns
+                + lambda_s * l_sat
+                + lambda_b * l_bal
+                + lambda_f * l_fair
+            )
+            # Only emit keys the lit module has MeanMetric trackers for —
+            # i.e., base_criterion_names + (optional) fairness_criterion_name.
+            # Mapping rationale: legacy `l_mat_constraint` is the "one-to-one
+            # constraint" force in the paper (encourages a doubly-stochastic
+            # m), so it slots into the existing `loss_one2one` tracker.
+            # legacy `l_unstability` slots into `loss_stability`.
+            log: Dict[str, torch.Tensor] = {
+                "loss_one2one": l_mat,
+                "loss_stability": l_uns,
+            }
+            if self.fairness == "sexequality":
+                log["loss_sexequality"] = l_fair
+            elif self.fairness == "egalitarian":
+                # Treat egalitarian-mode as the satisfaction-minimization branch.
+                log["loss_egalitarian"] = l_sat
+            elif self.fairness == "balance":
+                log["loss_balance"] = l_bal
+            return total, log
+
+        return criterion
+
+    @property
+    def base_criterion_names(self) -> List[str]:
+        # Names of always-on losses, used for metric registration in the lit
+        # module. We keep the PyPI vocabulary (loss_one2one / loss_stability)
+        # so dashboards and stops based on those keys keep working.
+        return ["loss_one2one", "loss_stability"]
+
+    @property
+    def fairness_criterion_name(self) -> str:
+        return f"loss_{self.fairness}" if self.fairness else "loss_none"
+
+    @staticmethod
+    def metric(m: torch.Tensor, sab: torch.Tensor, sba_t: torch.Tensor):
+        """Reuse the PyPI default metric — it uses argmax-binarize, which
+        works on raw-logit ``m`` as well as on probability-like ``m``."""
+        from .criteria import CriteriaStableMatching
+
+        return CriteriaStableMatching.metric(m, sab, sba_t)
+
+    @property
+    def metric_names(self) -> List[str]:
+        return ["is_one2one", "is_stable", "is_success", "num_blocking_pair", "sexequality", "egalitarian", "balance"]
 
 
 def legacy_residual_pattern(L: int) -> List[bool]:
