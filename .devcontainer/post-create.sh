@@ -39,11 +39,15 @@ sudo ln -sf "$(pwd)/claude-san" /usr/local/bin/claude-san
 
 # --- [Project] stable_matching_with_weavenet 固有のセットアップ ---
 # requirements.txt の依存と graphviz は Dockerfile でシステム pip/apt に焼き込み済み。
-# weavenet は external/weavenet に vendor していて、ここで editable install する
-# (バインドマウント先を指す egg-link が site-packages に作られるので、
-#  external/weavenet/src/weavenet/ への編集が即時反映される)。
+# weavenet は次の優先順位でインストール:
+#   1) external/weavenet/ が存在すれば editable install (= ローカルで weavenet を
+#      hacking する開発者向け; バインドマウント先への編集が即時反映)
+#   2) なければ GitHub の v1.1.0 タグから git+ install (= 通常ユーザー向け;
+#      PyPI 経由ではなくタグ参照で immutable に固定する)
 if [ -d /workspace/external/weavenet ]; then
   sudo pip install --no-deps --no-cache-dir -e /workspace/external/weavenet
+else
+  sudo pip install --no-cache-dir "git+https://github.com/omron-sinicx/weavenet.git@v1.1.0"
 fi
 
 # rebuild 毎に root 所有で再作成されてしまう ~/.config を vscode user に戻し、

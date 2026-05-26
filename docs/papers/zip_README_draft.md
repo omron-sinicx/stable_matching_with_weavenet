@@ -1,6 +1,6 @@
 # stable_matching_val-test
 
-Validation and test datasets for [omron-sinicx/weavenet-egal](https://github.com/omron-sinicx/weavenet-egal).
+Validation and test datasets for [omron-sinicx/stable_matching_with_weavenet](https://github.com/omron-sinicx/stable_matching_with_weavenet).
 
 ## Provenance
 
@@ -86,4 +86,4 @@ the paper's seed defaults.
 
 ## License
 
-Same as the source repo (omron-sinicx/weavenet-egal).
+Same as the source repo (omron-sinicx/stable_matching_with_weavenet).

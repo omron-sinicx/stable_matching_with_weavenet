@@ -54,10 +54,16 @@ rm -rf /tmp/weavenet-fresh
 
 ```sh
 rm -rf external/weavenet
-# In .devcontainer/post-create.sh, replace
-#   sudo pip install --no-deps --no-cache-dir -e /workspace/external/weavenet
-# with
-#   pip install --no-cache-dir weavenet>=1.1.0
-# (or add `weavenet>=1.1.0` to requirements.txt and rely on the existing
-#  `pip install -r requirements.txt` in the Dockerfile).
 ```
+
+`.devcontainer/post-create.sh` already falls back to
+`pip install git+https://github.com/omron-sinicx/weavenet.git@v1.1.0`
+when `external/weavenet/` is absent, so removing the directory is the
+only action required. The git+ install pins to the immutable v1.1.0 tag
+on GitHub, which avoids the PyPI supply-chain risk profile while still
+giving you a fixed-version dependency.
+
+If you instead want to consume from PyPI (when v1.1.0 is published
+there), replace the fallback line in `post-create.sh` with
+`pip install --no-cache-dir weavenet>=1.1.0` (or add it to
+`requirements.txt`).

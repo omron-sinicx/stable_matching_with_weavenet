@@ -11,18 +11,17 @@ which adds the `MeanAggregator` aggregator and the
 `CriteriaPerAxisStableMatching` criterion on top of v1.0.1, along with
 two bug fixes (`criteria` device mismatch, `model` residual side-b typo).
 
-A vendored snapshot lives at `external/weavenet/` and the devcontainer's
-`post-create.sh` installs it editable, so no separate `pip install` step
-is needed inside the devcontainer. See `external/weavenet/NOTES.md` for
-why the snapshot exists and how to remove the vendor once you would
-rather install from PyPI.
-
-If you are running outside the devcontainer:
+Install directly from the tagged commit on GitHub (preferred — avoids
+PyPI supply-chain risk and pins to an immutable git ref):
 
 ```
-% pip install -e external/weavenet      # or, equivalently:
-% pip install weavenet>=1.1.0
+% pip install "git+https://github.com/omron-sinicx/weavenet.git@v1.1.0"
 ```
+
+The devcontainer's `post-create.sh` does this automatically. For
+ease of local hacking on weavenet itself, a vendored snapshot also lives
+at `external/weavenet/`; see `external/weavenet/NOTES.md` for when to use
+which and how to remove the vendor when no longer needed.
 
 ### Validation / test data
 

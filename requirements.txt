@@ -21,8 +21,8 @@ rich            # beautiful text formatting in terminal
 pre-commit      # hooks for applying linters on commit
 pytest          # tests
 # sh            # for running bash commands in some tests (linux/macos only)
-# weavenet is vendored at external/weavenet/ (a snapshot of upstream v1.1.0)
-# and installed editable by .devcontainer/post-create.sh. The vendoring is
-# transitional; once you would rather pull from PyPI, see
-# external/weavenet/NOTES.md for the removal procedure and use
-# `weavenet>=1.1.0` here instead.
+# weavenet is installed by .devcontainer/post-create.sh:
+#   - if external/weavenet/ exists (dev hacking on weavenet itself), editable;
+#   - otherwise, `pip install git+https://github.com/omron-sinicx/weavenet.git@v1.1.0`
+#     (immutable tag ref, bypasses PyPI). See external/weavenet/NOTES.md for the
+#     vendor removal procedure if you want to drop the local copy.
