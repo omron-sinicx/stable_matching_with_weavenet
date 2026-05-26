@@ -30,7 +30,7 @@ def main() -> None:
     ap.add_argument(
         "--readme",
         type=Path,
-        default=PROJECT_ROOT / "docs" / "papers" / "zip_README_draft.md",
+        default=PROJECT_ROOT / "scripts" / "zip_README.md",
         help="Path to README.md to embed in the zip root.",
     )
     ap.add_argument(

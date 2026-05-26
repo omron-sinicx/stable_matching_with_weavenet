@@ -18,11 +18,6 @@ PyPI supply-chain risk and pins to an immutable git ref):
 % pip install "git+https://github.com/omron-sinicx/weavenet.git@v1.1.0"
 ```
 
-The devcontainer's `post-create.sh` does this automatically. For
-ease of local hacking on weavenet itself, a vendored snapshot also lives
-at `external/weavenet/`; see `external/weavenet/NOTES.md` for when to use
-which and how to remove the vendor when no longer needed.
-
 ### Validation / test data
 
 `stable_matching_val-test.zip` (1 GB after unzip) holds the 80 paper-
@@ -35,9 +30,9 @@ repo root:
 ```
 
 The exact provenance per `(distribution, agent count, split)` triple and
-the schema of each NPZ is documented inside the zip's `README.md` and in
-`docs/papers/zip_README_draft.md`. If you cannot obtain the zip, regenerate
-the data from scratch with:
+the schema of each NPZ is documented inside the zip's `README.md`
+(`scripts/zip_README.md` in this repo). If you cannot obtain the zip,
+regenerate the data from scratch with:
 
 ```
 % python scripts/generate_valtest_data.py --paper-seeds --out data/shared
