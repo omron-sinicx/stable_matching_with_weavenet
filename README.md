@@ -2,7 +2,7 @@
 This repository is an implementation of stable matching solver with WeaveNet. [[ref]](https://openreview.net/forum?id=ktHKpsbsxx).
 
 ## Preparation
-- Install [weavenet package (v1.0.0)](https://github.com/omron-sinicx/weavenet/releases/tag/v1.0.0).
+- Install [weavenet package (v1.0.1)](https://github.com/omron-sinicx/weavenet/releases/tag/v1.0.1).
 - Download [stable_matching_val-test.zip](https://drive.google.com/file/d/1MLIvUe4q_5kSNvfmn89Mfkb1TG2Z2Dj4/view?usp=sharing) and put it in `/data/` directory. Then, unzip it. You will get `data/validation` and `data/test` directories where {UU, DD, GG, UD, LL} type data with sizes {3,5,7,9,10,20,30,100}.
 ```
 % unzip stable_matching_val-test.zip
