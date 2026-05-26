@@ -20,26 +20,22 @@ PyPI supply-chain risk and pins to an immutable git ref):
 
 ### Validation / test data
 
-`stable_matching_val-test.zip` (1 GB after unzip) holds the 80 paper-
-authentic + paper-seed-regenerated NPZ datasets the configs expect under
-`data/{validation,test}/`. Download from [TBD link] and unzip into the
-repo root:
-
-```
-% unzip stable_matching_val-test.zip       # produces data/validation/ and data/test/
-```
-
-The exact provenance per `(distribution, agent count, split)` triple and
-the schema of each NPZ is documented inside the zip's `README.md`
-(`scripts/zip_README.md` in this repo). If you cannot obtain the zip,
-regenerate the data from scratch with:
+The training and evaluation configs expect 1000-sample NPZ datasets per
+`(distribution, agent count, split)` triple under
+`data/{validation,test}/`. Regenerate them from scratch with the
+paper's seed defaults:
 
 ```
 % python scripts/generate_valtest_data.py --paper-seeds --out data/shared
 ```
 
-This uses the paper's default seeds (135789 for val, 2456 for test) and
-produces statistically equivalent (not bit-exact) datasets.
+This re-seeds numpy with the paper's defaults (135789 for validation,
+2456 for test) once per `(split, dist, size)` invocation, then evolves
+the random state through the per-instance loop — the same recipe as
+the paper's `generate_dataset.py`. Output is statistically equivalent
+to the paper's dataset (not bit-exact, since numpy versions differ).
+NPZ schema per file: `sab, sba, matches, fairness, satisfaction,
+gs_matches, SexEqualityCost, EgalitarianCost`.
 
 ## Quickstart
 - training
