@@ -21,9 +21,22 @@ PyPI supply-chain risk and pins to an immutable git ref):
 ### Validation / test data
 
 The training and evaluation configs expect 1000-sample NPZ datasets per
-`(distribution, agent count, split)` triple under
-`data/{validation,test}/`. Regenerate them from scratch with the
-paper's seed defaults:
+`(distribution, agent count, split)` triple under `data/{validation,test}/`.
+
+**Option 1 — download the prebuilt dataset (~403 MB compressed):**
+
+```
+% wget -O stable_matching_val-test.zip \
+    "https://drive.google.com/uc?export=download&id=1-qUDe8f-9JVgXNuL0DHgmTEnr8xU-XVU"
+% unzip stable_matching_val-test.zip -d data/shared/
+```
+
+Or open the [Google Drive link](https://drive.google.com/file/d/1-qUDe8f-9JVgXNuL0DHgmTEnr8xU-XVU/view?usp=drive_link)
+in a browser. The zip contains 80 combinations × 1000 NPZs (5
+distributions × 8 sizes × 2 splits) plus an in-zip `README.md`
+describing the per-combo provenance.
+
+**Option 2 — regenerate from scratch with the paper seeds:**
 
 ```
 % python scripts/generate_valtest_data.py --paper-seeds --out data/shared
