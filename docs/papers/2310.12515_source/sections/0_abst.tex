@@ -1,0 +1,17 @@
+Matching, a task to optimally assign limited resources under constraints, is a fundamental technology for society.
+The task potentially has various objectives, conditions, and constraints; however, the efficient neural network architecture for matching is underexplored.
+This paper proposes a novel graph neural network (GNN), \textit{WeaveNet}, designed for bipartite graphs.
+Since a bipartite graph is generally dense, general GNN architectures lose node-wise information by over-smoothing when deeply stacked.
+Such a phenomenon is undesirable for solving matching problems.
+WeaveNet avoids it by preserving edge-wise information while passing messages densely to reach a better solution.
+To evaluate the model, we approximated one of the \textit{strongly NP-hard} problems, \textit{fair stable matching}.
+Despite its inherent difficulties and the network's general purpose design, our model reached a comparative performance with state-of-the-art algorithms specially designed for stable matching for small numbers of agents.
+
+%Assignment is a task of finding a matching in a multi-partite graph that better satisfies an objective. We cannot always exactly solve assignment problems due to their computational complexity or incomplete input information.
+%To approximately solve such problems without hand-crafting algorithms, we propose a novel neural network architecture, WeaveNet.
+%To enhance parameter efficiency of the network, its two-stream model shared weights of the network based on side-symmetry of assignment problems (i.e., agents select agents on opposite side in each other). Besides, we adopted a local structure that identifies a best matching through encoding candidate's relative difference.
+%In experiments, the model was tested on stable matching problems and impressively outperformed any other learning-based baselines and achieved comparative performance to the state-of-the-art algorithmic method under a limited situations.
+% 
+
+% side symmetry
+% differentiate...
