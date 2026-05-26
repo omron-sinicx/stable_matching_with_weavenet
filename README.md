@@ -5,17 +5,23 @@ This repository is an implementation of stable matching solver with WeaveNet. [[
 
 ### weavenet
 
-This project tracks [omron-sinicx/weavenet](https://github.com/omron-sinicx/weavenet)
-`main` (the next release after v1.0.1, which adds `MeanAggregator`,
-`CriteriaPerAxisStableMatching`, and two bug fixes in `criteria` / `model`).
-A vendored copy lives at `external/weavenet/`; the devcontainer's
-`post-create.sh` installs it editable, so no separate `pip install` step is
-needed when working inside the devcontainer.
+This project depends on
+[omron-sinicx/weavenet ≥ v1.1.0](https://github.com/omron-sinicx/weavenet/releases/tag/v1.1.0),
+which adds the `MeanAggregator` aggregator and the
+`CriteriaPerAxisStableMatching` criterion on top of v1.0.1, along with
+two bug fixes (`criteria` device mismatch, `model` residual side-b typo).
+
+A vendored snapshot lives at `external/weavenet/` and the devcontainer's
+`post-create.sh` installs it editable, so no separate `pip install` step
+is needed inside the devcontainer. See `external/weavenet/NOTES.md` for
+why the snapshot exists and how to remove the vendor once you would
+rather install from PyPI.
 
 If you are running outside the devcontainer:
 
 ```
-% pip install -e external/weavenet
+% pip install -e external/weavenet      # or, equivalently:
+% pip install weavenet>=1.1.0
 ```
 
 ### Validation / test data
