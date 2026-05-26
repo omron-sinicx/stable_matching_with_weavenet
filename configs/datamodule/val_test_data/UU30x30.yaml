@@ -1,0 +1,4 @@
+val_dat: validation/UU30x30.txt
+val_data_dir: validation
+test_dat: test/UU30x30.txt
+test_data_dir: test

@@ -17,7 +17,10 @@ hydra-optuna-sweeper==1.2.0
 
 # --------- others --------- #
 pyrootutils     # standardizing the project root setup
-pre-commit      # hooks for applying linters on commit
+torchviz        # computational graph visualization (used in weavenet_module.py)
 rich            # beautiful text formatting in terminal
+pre-commit      # hooks for applying linters on commit
 pytest          # tests
 # sh            # for running bash commands in some tests (linux/macos only)
+# weavenet is installed separately, pinned to an immutable git tag:
+#   pip install git+https://github.com/omron-sinicx/weavenet.git@v1.1.0

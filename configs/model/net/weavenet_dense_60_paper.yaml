@@ -1,0 +1,39 @@
+# WeaveNet-60-64-64-s-res, paper-spec build using the (now upstream) weavenet API.
+#
+# Differs from `weavenet_dense_60.yaml` (the modern recipe) in two places:
+#   1. residual mask           — `every_2_residual_pattern(60)`, mirroring the
+#                                paper's "every two FW layers" rule (Sec 3 of
+#                                arXiv:2310.12515).
+#   2. output aggregation      — `MeanAggregator` (raw mean of the two streams)
+#                                instead of `DualSoftmaxSqrt`. Must pair with
+#                                `model/criteria=paper_sexequal` (or another
+#                                `CriteriaPerAxisStableMatching` config) so the
+#                                loss does the row/col softmax internally.
+#
+# The encoder unit is the upstream `SetEncoderPointNet` (no special class
+# needed): it is mathematically equivalent to the paper's `EncoderMaxPool`
+# under the parameterization `output_channels_list=[D//2]*L` and
+# `mid_channels_list=[inner_conv_out_channels]*L`.
+#
+# Param count: ~493K (matches the legacy ~500K estimate).
+#
+# Hyperparameter origin: legacy run_exp2.sh
+#   `-L 60 -w 64 -W 64`  →  output_channels_list=[32]*60, mid_channels_list=[64]*60
+_target_: weavenet.model.TrainableMatchingModule
+net:
+  _target_: weavenet.model.WeaveNet
+  input_channels: 2
+  output_channels_list: [32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32]
+  mid_channels_list:    [64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+  calc_residual:
+    _target_: src.utils.residual_patterns.every_2_residual_pattern
+    L: 60
+  keep_first_var_after: 0
+  exclusive_elements_of_unit: 'none'
+  is_single_stream: false
+
+output_channels: 1
+# Raw mean of two stream outputs (paper). Pair with a criterion that consumes
+# raw logits (`CriteriaPerAxisStableMatching` and its `paper_*` configs).
+stream_aggregator:
+  _target_: weavenet.layers.MeanAggregator

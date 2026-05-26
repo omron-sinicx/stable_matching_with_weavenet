@@ -2,11 +2,66 @@
 This repository is an implementation of stable matching solver with WeaveNet. [[ref]](https://openreview.net/forum?id=ktHKpsbsxx).
 
 ## Preparation
-- Install [weavenet package (v1.0.1)](https://github.com/omron-sinicx/weavenet/releases/tag/v1.0.1).
-- Download [stable_matching_val-test.zip](https://drive.google.com/file/d/1MLIvUe4q_5kSNvfmn89Mfkb1TG2Z2Dj4/view?usp=sharing) and put it in `/data/` directory. Then, unzip it. You will get `data/validation` and `data/test` directories where {UU, DD, GG, UD, LL} type data with sizes {3,5,7,9,10,20,30,100}.
+
+### weavenet
+
+This project depends on
+[omron-sinicx/weavenet ≥ v1.1.0](https://github.com/omron-sinicx/weavenet/releases/tag/v1.1.0),
+which adds the `MeanAggregator` aggregator and the
+`CriteriaPerAxisStableMatching` criterion on top of v1.0.1, along with
+two bug fixes (`criteria` device mismatch, `model` residual side-b typo).
+
+Install directly from the tagged commit on GitHub (preferred — avoids
+PyPI supply-chain risk and pins to an immutable git ref):
+
 ```
-% unzip stable_matching_val-test.zip
+% pip install "git+https://github.com/omron-sinicx/weavenet.git@v1.1.0"
 ```
+
+### Validation / test data
+
+The training and evaluation configs expect 1000-sample NPZ datasets per
+`(distribution, agent count, split)` triple under `data/{validation,test}/`.
+
+> [!IMPORTANT]
+> The original `stable_matching_val-test.zip` that backed the numbers
+> printed in arXiv:2310.12515 was accidentally deleted and could not be
+> recovered. The dataset distributed below is a **statistically
+> equivalent reconstruction**, not bit-exact to the paper's instances:
+> samples are drawn from the same distributions with the paper's seed
+> defaults (135789 for validation, 2456 for test), but small differences
+> in `numpy` random-number consumption order shift the per-instance raw
+> values. Use this dataset for **retraining + re-evaluating locally**
+> and comparing your own numbers, rather than expecting bit-equality
+> against the published Tables/Figures. Aggregate metrics (mean
+> `is_success`, sex-equality / egalitarian / balance costs, etc.) match
+> within statistical noise on the same model + hyperparameters.
+
+**Option 1 — download the prebuilt dataset (~403 MB compressed):**
+
+```
+% wget -O stable_matching_val-test.zip \
+    "https://drive.google.com/uc?export=download&id=1-qUDe8f-9JVgXNuL0DHgmTEnr8xU-XVU"
+% unzip stable_matching_val-test.zip -d data/shared/
+```
+
+Or open the [Google Drive link](https://drive.google.com/file/d/1-qUDe8f-9JVgXNuL0DHgmTEnr8xU-XVU/view?usp=drive_link)
+in a browser. The zip contains 80 combinations × 1000 NPZs (5
+distributions × 8 sizes × 2 splits) plus an in-zip `README.md`
+describing the per-combo provenance.
+
+**Option 2 — regenerate from scratch with the paper seeds:**
+
+```
+% python scripts/generate_valtest_data.py --paper-seeds --out data/shared
+```
+
+This re-seeds numpy with the paper's defaults (135789 for validation,
+2456 for test) once per `(split, dist, size)` invocation, then evolves
+the random state through the per-instance loop — the same recipe as
+the paper's `generate_dataset.py`. NPZ schema per file: `sab, sba,
+matches, fairness, satisfaction, gs_matches, SexEqualityCost,
+EgalitarianCost`.
 
 ## Quickstart
 - training
@@ -45,4 +100,21 @@ This repository is an implementation of stable matching solver with WeaveNet. [[
 % python train.py +model/do_jit_scripting=false
 ```
 
-- Please check any other configuration ideas in `./config/'.
+### Paper-spec WN-60 reproduction (Exp 2 / Table 2, 3)
+- 60-layer WeaveNet with raw-mean aggregator + per-axis-softmax criterion,
+  matching the loss / aggregation recipe used in the paper.
+- Train on GG30x30 for the paper's 1000 epochs:
+```
+% python src/train.py \
+    trainer.max_epochs=1000 trainer.check_val_every_n_epoch=10 \
+    trainer.accelerator=gpu trainer.devices=1 \
+    model/net=weavenet_dense_60_paper \
+    model/criteria=paper_sexequal \
+    model.do_jit_scripting=false \
+    datamodule/training_data=GG30x30 \
+    datamodule/val_test_data=GG30x30
+```
+- Substitute `UU30x30` / `DD30x30` / `UD30x30` / `LL30x30` for other
+  distributions in Table 2. For Table 3 use `*20x20` configs.
+
+- Please check any other configuration ideas in `./configs/`.

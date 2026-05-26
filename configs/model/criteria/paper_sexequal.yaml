@@ -1,0 +1,20 @@
+# Paper-spec criterion (CriteriaPerAxisStableMatching) with sex-equality fairness.
+#
+# Hyperparameter values follow legacy `run_exp2.sh`:
+#   `-m 1.0 -u 0.7 -s 0.0 -f 0.01 -b 0.0 -cp 2.0`
+# which legacy stored as the checkpoint-dir name
+# `lr0.0001-m1.0-u0.7-s0.0-f0.01-b0.0-cp2.0`.
+#
+# Must pair with `model/net=weavenet_dense_60_paper` (or any net config that
+# ends in MeanAggregator) — the criterion expects raw model logits and applies
+# `softmax(., dim=-1)` and `softmax(., dim=-2)` itself inside the loss.
+_target_: weavenet.criteria.CriteriaPerAxisStableMatching
+
+one2one_weight: 1.0          # matrix constraint (doubly-stochastic encouragement)
+stability_weight: 0.7        # unstability (blocking-pair proxy)
+fairness: sexequality
+fairness_weight: 0.01        # paper's `-lf 0.01`
+gate_fairness_loss: false
+satisfaction_weight: 0.0     # off in paper exp2 (sex-equality run)
+balance_weight: 0.0          # off in paper exp2 (sex-equality run)
+constraint_p: 2.0            # p-norm in matrix-constraint loss
