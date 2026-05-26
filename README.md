@@ -23,6 +23,20 @@ PyPI supply-chain risk and pins to an immutable git ref):
 The training and evaluation configs expect 1000-sample NPZ datasets per
 `(distribution, agent count, split)` triple under `data/{validation,test}/`.
 
+> [!IMPORTANT]
+> The original `stable_matching_val-test.zip` that backed the numbers
+> printed in arXiv:2310.12515 was accidentally deleted and could not be
+> recovered. The dataset distributed below is a **statistically
+> equivalent reconstruction**, not bit-exact to the paper's instances:
+> samples are drawn from the same distributions with the paper's seed
+> defaults (135789 for validation, 2456 for test), but small differences
+> in `numpy` random-number consumption order shift the per-instance raw
+> values. Use this dataset for **retraining + re-evaluating locally**
+> and comparing your own numbers, rather than expecting bit-equality
+> against the published Tables/Figures. Aggregate metrics (mean
+> `is_success`, sex-equality / egalitarian / balance costs, etc.) match
+> within statistical noise on the same model + hyperparameters.
+
 **Option 1 — download the prebuilt dataset (~403 MB compressed):**
 
 ```
@@ -45,10 +59,9 @@ describing the per-combo provenance.
 This re-seeds numpy with the paper's defaults (135789 for validation,
 2456 for test) once per `(split, dist, size)` invocation, then evolves
 the random state through the per-instance loop — the same recipe as
-the paper's `generate_dataset.py`. Output is statistically equivalent
-to the paper's dataset (not bit-exact, since numpy versions differ).
-NPZ schema per file: `sab, sba, matches, fairness, satisfaction,
-gs_matches, SexEqualityCost, EgalitarianCost`.
+the paper's `generate_dataset.py`. NPZ schema per file: `sab, sba,
+matches, fairness, satisfaction, gs_matches, SexEqualityCost,
+EgalitarianCost`.
 
 ## Quickstart
 - training
