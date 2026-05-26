@@ -21,4 +21,7 @@ rich            # beautiful text formatting in terminal
 pre-commit      # hooks for applying linters on commit
 pytest          # tests
 # sh            # for running bash commands in some tests (linux/macos only)
-# weavenet is installed separately in Dockerfile from git+https://github.com/omron-sinicx/weavenet
+# weavenet is vendored at external/weavenet/ and installed editable by
+# .devcontainer/post-create.sh. See external/weavenet/NOTES.md for the
+# upstream PRs this snapshot carries and the plan to switch back to PyPI
+# once weavenet v1.0.2 is tagged.

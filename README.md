@@ -2,11 +2,44 @@
 This repository is an implementation of stable matching solver with WeaveNet. [[ref]](https://openreview.net/forum?id=ktHKpsbsxx).
 
 ## Preparation
-- Install [weavenet package (v1.0.0)](https://github.com/omron-sinicx/weavenet/releases/tag/v1.0.0).
-- Download [stable_matching_val-test.zip](https://drive.google.com/file/d/1MLIvUe4q_5kSNvfmn89Mfkb1TG2Z2Dj4/view?usp=sharing) and put it in `/data/` directory. Then, unzip it. You will get `data/validation` and `data/test` directories where {UU, DD, GG, UD, LL} type data with sizes {3,5,7,9,10,20,30,100}.
+
+### weavenet
+
+This project tracks [omron-sinicx/weavenet](https://github.com/omron-sinicx/weavenet)
+`main` (the next release after v1.0.1, which adds `MeanAggregator`,
+`CriteriaPerAxisStableMatching`, and two bug fixes in `criteria` / `model`).
+A vendored copy lives at `external/weavenet/`; the devcontainer's
+`post-create.sh` installs it editable, so no separate `pip install` step is
+needed when working inside the devcontainer.
+
+If you are running outside the devcontainer:
+
 ```
-% unzip stable_matching_val-test.zip
+% pip install -e external/weavenet
 ```
+
+### Validation / test data
+
+`stable_matching_val-test.zip` (1 GB after unzip) holds the 80 paper-
+authentic + paper-seed-regenerated NPZ datasets the configs expect under
+`data/{validation,test}/`. Download from [TBD link] and unzip into the
+repo root:
+
+```
+% unzip stable_matching_val-test.zip       # produces data/validation/ and data/test/
+```
+
+The exact provenance per `(distribution, agent count, split)` triple and
+the schema of each NPZ is documented inside the zip's `README.md` and in
+`docs/papers/zip_README_draft.md`. If you cannot obtain the zip, regenerate
+the data from scratch with:
+
+```
+% python scripts/generate_valtest_data.py --paper-seeds --out data/shared
+```
+
+This uses the paper's default seeds (135789 for val, 2456 for test) and
+produces statistically equivalent (not bit-exact) datasets.
 
 ## Quickstart
 - training
@@ -45,4 +78,21 @@ This repository is an implementation of stable matching solver with WeaveNet. [[
 % python train.py +model/do_jit_scripting=false
 ```
 
-- Please check any other configuration ideas in `./config/'.
+### Paper-spec WN-60 reproduction (Exp 2 / Table 2, 3)
+- 60-layer WeaveNet with raw-mean aggregator + per-axis-softmax criterion,
+  matching the loss / aggregation recipe used in the paper.
+- Train on GG30x30 for the paper's 1000 epochs:
+```
+% python src/train.py \
+    trainer.max_epochs=1000 trainer.check_val_every_n_epoch=10 \
+    trainer.accelerator=gpu trainer.devices=1 \
+    model/net=weavenet_dense_60_paper \
+    model/criteria=paper_sexequal \
+    model.do_jit_scripting=false \
+    datamodule/training_data=GG30x30 \
+    datamodule/val_test_data=GG30x30
+```
+- Substitute `UU30x30` / `DD30x30` / `UD30x30` / `LL30x30` for other
+  distributions in Table 2. For Table 3 use `*20x20` configs.
+
+- Please check any other configuration ideas in `./configs/`.
